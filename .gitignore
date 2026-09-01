@@ -1,0 +1,103 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment and credentials (sample templates remain trackable)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*service-account*.json
+credentials*.json
+secrets/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Models and ML caches
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+checkpoints/
+models/cache/
+.cache/huggingface/
+huggingface/
+ray_results/
+/tmp/ray/
+mlruns/
+wandb/
+
+# Local databases and volumes
+*.db
+*.sqlite
+*.sqlite3
+postgres-data/
+database-volumes/
+
+# Large local data; policy files and scaffolds remain tracked
+/data/**/*.tif
+/data/**/*.tiff
+/data/**/*.geotiff
+/data/**/*.jp2
+/data/**/*.h5
+/data/**/*.hdf5
+/data/**/*.nc
+/data/**/*.zarr/
+/data/**/*.parquet
+/data/**/*.npy
+/data/**/*.npz
+/data/**/*.zip
+/data/**/*.tar
+/data/**/*.tar.gz
+
+# Generated artifacts
+/artifacts/masks/*
+!/artifacts/masks/.gitkeep
+/artifacts/vectors/*
+!/artifacts/vectors/.gitkeep
+/artifacts/reports/*
+!/artifacts/reports/.gitkeep
+/artifacts/audit_logs/*
+!/artifacts/audit_logs/.gitkeep
+
+# Infrastructure state
+.terraform/
+*.tfstate
+*.tfstate.*

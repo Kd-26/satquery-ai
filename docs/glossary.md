@@ -1,0 +1,35 @@
+# Glossary
+
+- **Affine transform:** coefficients mapping raster row/column positions to coordinates; trustworthy area also depends on the CRS and units.
+- **Backscatter:** radar energy returned toward the sensor, represented according to a documented calibration and scale such as linear power or decibels.
+- **Band:** a measured wavelength interval or SAR polarisation stored as a raster plane; band identity requires metadata, not just array position.
+- **Calibration:** conversion/correction that relates recorded values to a defined physical or standardized measurement representation.
+- **Change detection:** locating differences between observations; binary change says “changed/not changed,” not which semantic class changed.
+- **Channel:** one array dimension supplied to a display or model. It may represent a band, derived feature, colour component, or alpha mask and is not itself proof of modality.
+- **CRS (coordinate reference system):** the coordinate model, datum, and projection used to locate geometry and interpret distance/area units.
+- **Detection:** locating individual object instances, usually with boxes or instance masks; unlike semantic segmentation, it distinguishes objects.
+- **GeoTIFF:** TIFF imagery carrying georeferencing/geocoding tags under the GeoTIFF standard; individual files can still have missing or unsuitable metadata.
+- **Georeferencing:** associating raster positions with real-world coordinates through a transform and CRS.
+- **Grounding:** linking a textual claim to a specific image region, mask, geometry, or evidence identifier.
+- **GSD (ground sampling distance):** approximate ground distance represented by one pixel; it depends on product geometry and is not inferable from display dimensions.
+- **LoRA (Low-Rank Adaptation):** parameter-efficient fine-tuning that learns low-rank updates while keeping most base-model weights fixed.
+- **MNDWI (Modified Normalized Difference Water Index):** `(Green − SWIR) / (Green + SWIR)` for verified compatible bands.
+- **Multi-LoRA:** multiple named LoRA adapters sharing a base model and selected/routed by capability; simultaneous merging is a separate behavior requiring evaluation.
+- **Multispectral imagery:** measurements in multiple defined spectral bands, potentially including visible, near-infrared, or shortwave-infrared bands.
+- **NDBI (Normalized Difference Built-up Index):** `(SWIR − NIR) / (SWIR + NIR)` for verified compatible bands; not a universal built-up classifier.
+- **NDVI (Normalized Difference Vegetation Index):** `(NIR − Red) / (NIR + Red)` for verified compatible bands.
+- **NDWI (Normalized Difference Water Index):** here, the McFeeters-style `(Green − NIR) / (Green + NIR)` definition; the formula name/version must be explicit because other NDWI variants exist.
+- **NoData:** a marker or mask indicating pixels without valid observation values; it is distinct from a physical zero.
+- **Optical imagery:** data produced from reflected/emitted electromagnetic energy in optical spectral ranges; a colour rendering alone does not prove optical source bands.
+- **Physics-aware tool:** deterministic, versioned computation with declared physical inputs, formula/operation, assumptions, units, and failure conditions.
+- **Polarisation:** orientation relationship of transmitted/received radar electromagnetic fields.
+- **Registration:** spatial alignment of observations so corresponding locations coincide within a measured tolerance.
+- **Reliability-aware fusion:** combination of compatible evidence using explicit source quality, pair compatibility, disagreement, fallback, calibration, and abstention.
+- **SAR (synthetic aperture radar):** active microwave imaging using transmitted radar signals and measured returns; geometry, polarisation, calibration, and speckle matter.
+- **Segmentation:** assigning a class or probability to pixels. Semantic segmentation labels classes; instance segmentation also separates objects.
+- **Semantic change:** a transition from a known class at T1 to a known class at T2, requiring semantic evidence at both times.
+- **Speckle:** multiplicative granular interference inherent in coherent SAR imagery; filtering trades noise reduction against spatial detail.
+- **VH:** radar transmitted vertically and received horizontally (cross-polarisation).
+- **Vision encoder:** the model component that converts image inputs into features used by a multimodal/VLM system.
+- **VLM (vision-language model):** a model processing visual and language inputs for tasks such as question answering or explanation; it does not establish missing scientific metadata.
+- **VV:** radar transmitted vertically and received vertically (co-polarisation).
