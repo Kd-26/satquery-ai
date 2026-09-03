@@ -158,3 +158,34 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
         "tool_outputs": tool_outputs,
         "traces": traces
     }
+
+def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> Dict[str, Any]:
+    if not validation.approved:
+        raise ExecutorError("Cannot run workflow: Validation rejected the plan.")
+        
+    if len(plan.images) < 2:
+        raise ExecutorError("Temporal workflow requires at least 2 images.")
+        
+    image_t1 = plan.images[0]
+    image_t2 = plan.images[1]
+    
+    plan_t1 = plan.model_copy(update={"images": [image_t1]})
+    plan_t2 = plan.model_copy(update={"images": [image_t2]})
+    
+    res_t1 = run_single_image_workflow(plan_t1, validation)
+    res_t2 = run_single_image_workflow(plan_t2, validation)
+    
+    masks_out = {}
+    scores_out = {}
+    measurements_out = {}
+    tool_outputs = {}
+    
+    # We will populate these in subsequent commits
+    
+    return {
+        "masks": masks_out,
+        "scores": scores_out,
+        "measurements": measurements_out,
+        "tool_outputs": tool_outputs,
+        "traces": res_t1["traces"] + res_t2["traces"]
+    }
