@@ -34,3 +34,4 @@
 ext/font/google to load 'Inter' (sans) and 'JetBrains Mono' (mono) globally in layout.tsx.
 - **Chunk 13.2 (UI Primitives):** Built shared components (Button, Panel, Tabs, Slider, Badge, and DataReadout) utilizing the new dark-mode design tokens, enforcing a consistent, mission-control aesthetic across the app.
   - Refactored older Phase 10 components (\UploadPanel\, \QueryBox\, \EvidencePanel\, \TracePanel\, \ReportExport\) to adopt the new UI primitives instead of relying on raw Tailwind classes.
+- **Chunk 14.1 (Two-Mode Flow):** Configured Next.js App Router for the /explorer/[runId] path. Added an 'Open in Evidence Explorer' link inside the Quick Query results. Both routes automatically share the root layout and Mission Control design tokens.
