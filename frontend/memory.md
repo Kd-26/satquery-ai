@@ -24,4 +24,8 @@
 ---
 
 ## Next Steps
-- **Chunk 10.2 (Map Viewer):** Implement the geospatial rendering engine in the right column, complete with layer opacity toggles, bi-temporal before/after sliders, and cross-modal view toggles.
+- **Chunk 10.2 (Map Viewer):** Implemented MapViewer.tsx in the right column. It includes:
+  - Base layer rendering with semantic mask overlays (mocked visually).
+  - An **Overlay Opacity** slider to fade the AI's predictions in and out over the raw imagery.
+  - A **Before/After slider** for temporal workflows (T1 vs T2 comparison).
+  - A **Cross-Modal view toggle** allowing users to switch between Optical-only, SAR-only, and Fused views.
