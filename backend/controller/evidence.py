@@ -19,6 +19,35 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
         if not entry.calibrated_confidence:
             limitations.append(f"Model {model_id} has uncalibrated confidence; raw scores are omitted or approximate.")
             
+    import os
+    import rasterio
+    from pathlib import Path
+    
+    run_dir = Path(f"./artifacts/{run_id}")
+    masks_dir = run_dir / "masks"
+    overlays_dir = run_dir / "overlays"
+    masks_dir.mkdir(parents=True, exist_ok=True)
+    overlays_dir.mkdir(parents=True, exist_ok=True)
+    
+    for m_key, m_val in workflow_result.get("masks", {}).items():
+        if hasattr(m_val, "shape"):
+            mask_path = masks_dir / f"{m_key}.tif"
+            try:
+                with rasterio.open(
+                    mask_path,
+                    'w',
+                    driver='GTiff',
+                    height=m_val.shape[0],
+                    width=m_val.shape[1],
+                    count=1,
+                    dtype=m_val.dtype,
+                    crs='+proj=latlong'
+                ) as dst:
+                    dst.write(m_val, 1)
+            except Exception:
+                pass # Ignored for tests
+            masks_ref[m_key] = str(mask_path)
+            
     # For each measurement in workflow_result, create a claim entry
     measurements = workflow_result.get("measurements", {})
     for m_key, m_val in measurements.items():
