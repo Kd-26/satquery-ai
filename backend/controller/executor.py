@@ -28,6 +28,25 @@ def _mock_model_inference(tensor: np.ndarray, model_id: str, contract: dict, cla
         
     return {"masks": masks, "scores": scores}
 
+from backend.scientific_tools.quality import compute_valid_mask
+from backend.controller.ingestion import resolve_metadata
+from backend.scientific_tools.raster_io import read_bands
+from pathlib import Path
+
+def _stitch_tiles(batch_tensor: np.ndarray, tile_transforms: list, dtype=np.float32) -> np.ndarray:
+    if not tile_transforms:
+        return batch_tensor[0]
+        
+    max_h = max(t["y_offset"] + t["orig_h"] for t in tile_transforms)
+    max_w = max(t["x_offset"] + t["orig_w"] for t in tile_transforms)
+    
+    stitched = np.zeros((max_h, max_w), dtype=dtype)
+    for i, t in enumerate(tile_transforms):
+        y, x = t["y_offset"], t["x_offset"]
+        oh, ow = t["orig_h"], t["orig_w"]
+        stitched[y:y+oh, x:x+ow] = batch_tensor[i, :oh, :ow]
+    return stitched
+
 def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult) -> Dict[str, Any]:
     if not validation.approved:
         raise ExecutorError("Cannot run workflow: Validation rejected the plan.")
@@ -42,6 +61,15 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
     scores_out = {}
     measurements_out = {}
     tool_outputs = {}
+    
+    # Compute valid mask for the entire image
+    profile = resolve_metadata(image_id)
+    artifact_dir = Path(f"./artifacts/{image_id}")
+    files = list(artifact_dir.glob("original.*"))
+    file_path = str(files[0])
+    raw_raster = read_bands(file_path)
+    
+    valid_mask = compute_valid_mask(raw_raster, nodata_value=profile.nodata_value)
     
     for model_id in plan.required_models:
         start_t = time.time()
@@ -70,8 +98,16 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
         })
         
         for cls, mask in result["masks"].items():
-            masks_out[f"{model_id}_{cls}"] = mask
-            scores_out[f"{model_id}_{cls}"] = result["scores"][cls]
+            # Stitch tiles
+            stitched_mask = _stitch_tiles(mask, tile_transforms, dtype=np.uint8)
+            stitched_score = _stitch_tiles(result["scores"][cls], tile_transforms, dtype=np.float32)
+            
+            # Apply valid mask
+            stitched_mask &= valid_mask
+            stitched_score[~valid_mask] = 0.0
+            
+            masks_out[f"{model_id}_{cls}"] = stitched_mask
+            scores_out[f"{model_id}_{cls}"] = stitched_score
             
     return {
         "masks": masks_out,
