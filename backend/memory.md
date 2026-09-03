@@ -68,6 +68,11 @@
 - **Chunk 15.2 (Evidence graph builder):** Wrote `build_evidence_graph` in `evidence_graph.py` to explode the flat EvidencePackage into a fully linked parent-child DB graph (`claim` -> `measurement` -> `region` -> `mask` -> `model` -> `input`). Provided standard JSON traversal helpers (`get_evidence_graph`, `get_node_lineage`) for the Explorer's frontend to visualize the pipeline's exact lineage.
 - **Chunk 15.3 (STAC catalog & Reproducibility):** Developed `reproducibility.py` featuring a `pystac` asset registry pipeline. Implemented `write_run_manifest()` to securely dump `input_checksums`, explicit `model_versions`, and core pip `software_versions` to a static `./artifacts/{run_id}/run_manifest.json`, explicitly locking it in as the single incontrovertible source of truth for the forthcoming Phase 19 Jupyter notebook generator.
 
+### Phase 18 - Research Experiment "What-If" Engine (Panel D)
+- **Chunk 18.1 (Backend rerun/versioning):** Created `experiments.py` with `create_experiment()` to execute non-destructive "What-If" reruns based on parameter overrides (thresholds, model swaps, tool toggles, fusion weights). It is explicitly designed to determine the earliest affected stage in the DAG to skip unnecessary upstream work. Set up API endpoints `POST /api/v1/runs/{run_id}/experiments` and `GET /api/v1/experiments/{experiment_id}` that log these reruns to the `experiments` database table without mutating the original `ExecutionPlan` or parent run trace.
+- **Chunk 18.2 (Experiment Panel UI):** (Frontend) Built the dynamic `ExperimentPanel.tsx` holding sliders and toggles for adjusting scientific parameters. Implemented a split-screen view allowing users to evaluate the newly computed experiment mask side-by-side against the baseline parent run before choosing to "Save as New Run". Code-split via Next.js dynamic import.
+- **Chunk 18.3 (Manual mask correction):** Engineered the `POST /api/v1/experiments/{experiment_id}/corrections` API endpoint. This powerful tool accepts explicit geometry patches (include/exclude GeoJSON) drawn by the user on the map. It commits the modification directly into the `feedback_tags` database for provenance, and crucially appends it to `run_manifest.json.user_corrections`, preserving manual scientific tuning for exact reproducibility.
+
 ---
 
 ## Architectural Decisions
