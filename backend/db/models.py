@@ -43,3 +43,17 @@ class Answer(SQLModel, table=True):
     run_id: str = Field(index=True)
     answer_text: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# Ensure the Postgres connection setup enables the PostGIS extension:
+# `CREATE EXTENSION IF NOT EXISTS postgis;`
+# (Run this manually when provisioning the database)
+
+from geoalchemy2 import Geometry
+
+class Region(SQLModel, table=True):
+    __tablename__ = "regions"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    run_id: str = Field(index=True)
+    geometry: Any = Field(sa_column=Column(Geometry('POLYGON', srid=4326)))
+    class_label: str
+    source_mask_ref: str
