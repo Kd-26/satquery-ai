@@ -1,0 +1,13 @@
+id: TOOL_MEASURE_REGIONS
+type: scientific_tool
+modality: n/a
+input_contract:
+  requires_valid_mask: true
+  requires_geometry: [crs, pixel_spacing_m]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: false
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Without verified CRS + pixel spacing, disable hectare output"

@@ -1,0 +1,20 @@
+id: SEG_RGB_v1
+type: segmentation
+modality: optical_rgb
+input_contract:
+  bands: [R, G, B]
+  dtype: uint8
+  scale: [0, 255]
+  normalization: imagenet_mean_std
+  min_resolution_px: [256, 256]
+classes: [water, vegetation, built_up, bare_soil, cropland]
+resolution_range_m: [0.3, 30.0]
+endpoint: "http://seg-rgb-service:8001/infer"
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+trained_on: ["BigEarthNet.txt", "BigEarthNet_v2_maps"]
+eval_summary:
+  miou: null
+known_domain_shift_sensors: ["Cartosat-2S"]
+notes: "Trained on Sentinel-2 true-colour composites."

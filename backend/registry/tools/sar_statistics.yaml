@@ -1,0 +1,13 @@
+id: TOOL_SAR_STATISTICS
+type: scientific_tool
+modality: sar
+input_contract:
+  requires_calibrated_backscatter: true
+  supported_ops: [mean, median, std, vv_vh_ratio, temporal_diff]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: false
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "vv_vh_ratio requires linear representation, not dB"

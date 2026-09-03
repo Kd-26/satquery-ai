@@ -1,0 +1,18 @@
+id: GROUNDING_v1
+type: detection
+modality: optical_rgb
+input_contract:
+  bands: [R, G, B]
+  dtype: uint8
+  requires_text_query: true
+classes: null
+resolution_range_m: [0.3, 5.0]
+endpoint: "http://grounding-service:8004/infer"
+adapter_compatible: false
+calibrated_confidence: false
+version: "0.1.0"
+trained_on: ["VRSBench referring-expression split"]
+eval_summary:
+  iou_at_50: null
+known_domain_shift_sensors: null
+notes: "v0.1.0 is a stub"

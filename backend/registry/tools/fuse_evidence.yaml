@@ -1,0 +1,13 @@
+id: TOOL_FUSE_EVIDENCE
+type: scientific_tool
+modality: cross_modal
+input_contract:
+  requires_reliability_scores: true
+  requires_matching_class: true
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: false
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Formula: p_fused = (q_opt*p_opt + q_sar*p_sar) / (q_opt + q_sar)"

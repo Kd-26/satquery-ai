@@ -1,0 +1,20 @@
+id: LORA_CROSSMODAL_v1
+type: lora_adapter
+modality: n/a
+input_contract:
+  base_model: "Qwen2.5-VL"
+  activation_point: language_component
+  rank: 16
+  alpha: 32
+task: "cross_modal_reasoning"
+classes: null
+endpoint: null
+adapter_compatible: true
+calibrated_confidence: false
+version: "1.0.0"
+trained_on: ["BigEarthNet.txt paired samples"]
+eval_summary:
+  crossmodal_vqa_accuracy: null
+  synthetic_fraction: null
+known_domain_shift_sensors: null
+notes: "Report synthetic_fraction honestly"

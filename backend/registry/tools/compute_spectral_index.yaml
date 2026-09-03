@@ -1,0 +1,16 @@
+id: TOOL_SPECTRAL_INDEX
+type: scientific_tool
+modality: optical_multispectral
+input_contract:
+  supported_indices:
+    NDVI: [NIR, Red]
+    NDWI: [Green, NIR]
+    MNDWI: [Green, SWIR1]
+    NDBI: [SWIR1, NIR]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: false
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Each index requires its exact band pair to be present"

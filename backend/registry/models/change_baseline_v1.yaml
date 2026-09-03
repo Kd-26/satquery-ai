@@ -1,0 +1,18 @@
+id: CHANGE_BASELINE_v1
+type: change
+modality: temporal
+input_contract:
+  requires_pair: true
+  same_modality_required: false
+  underlying_segmenters: [SEG_RGB_v1, SEG_RGBNIR_v1, SEG_SAR_VV_VH_v1]
+classes: [water, vegetation, built_up, bare_soil, cropland]
+resolution_range_m: [5.0, 30.0]
+endpoint: "http://change-service:8005/infer"
+adapter_compatible: false
+calibrated_confidence: false
+version: "1.0.0"
+trained_on: null
+eval_summary:
+  change_accuracy: null
+known_domain_shift_sensors: null
+notes: "Baseline implementation is segment(T1) vs segment(T2) then compare_dates()."

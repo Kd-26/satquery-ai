@@ -1,0 +1,21 @@
+id: LORA_GENERAL_v1
+type: lora_adapter
+modality: n/a
+input_contract:
+  base_model: "Qwen2.5-VL"
+  activation_point: language_component
+  rank: 16
+  alpha: 32
+task: "vqa_captioning_grounding"
+classes: null
+endpoint: null
+adapter_compatible: true
+calibrated_confidence: false
+version: "1.0.0"
+trained_on: ["BigEarthNet.txt", "VRSBench", "RSVQA"]
+eval_summary:
+  vqa_accuracy: null
+  captioning_score: null
+  grounding_iou: null
+known_domain_shift_sensors: null
+notes: "Default adapter for single-image workflows."

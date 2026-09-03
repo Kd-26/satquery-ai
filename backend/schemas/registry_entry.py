@@ -10,7 +10,8 @@ class RegistryEntry(BaseModel):
     input_contract: Dict[str, Any]
     classes: Optional[List[str]] = None
     resolution_range_m: Optional[List[float]] = None
-    endpoint: str
+    endpoint: Optional[str] = None
+    task: Optional[str] = None
     version: str
     adapter_compatible: bool
     calibrated_confidence: Optional[bool] = None

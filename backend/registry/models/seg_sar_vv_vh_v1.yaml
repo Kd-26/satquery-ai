@@ -1,0 +1,19 @@
+id: SEG_SAR_VV_VH_v1
+type: segmentation
+modality: sar
+input_contract:
+  polarization_order: [VV, VH]
+  representation: dB
+  calibration_required: true
+  min_resolution_px: [256, 256]
+classes: [water, built_up]
+resolution_range_m: [5.0, 20.0]
+endpoint: "http://seg-sar-service:8002/infer"
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+trained_on: ["Sentinel-1 labeled subset"]
+eval_summary:
+  miou: null
+known_domain_shift_sensors: ["RISAT"]
+notes: "HV is NOT a valid substitute for VH."

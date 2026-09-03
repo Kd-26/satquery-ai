@@ -1,0 +1,18 @@
+id: FUSION_v1
+type: fusion
+modality: cross_modal
+input_contract:
+  requires_pair: true
+  same_class_required: true
+  requires_reliability_scores: true
+classes: [water, built_up]
+resolution_range_m: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: false
+version: "1.0.0"
+trained_on: null
+eval_summary:
+  fusion_benefit_delta: null
+known_domain_shift_sensors: null
+notes: "Implements evidence-level fusion"
