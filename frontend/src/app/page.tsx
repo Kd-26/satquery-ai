@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UploadPanel } from '../components/UploadPanel';
 import { QueryBox } from '../components/QueryBox';
+import { MapViewer } from '../components/MapViewer';
 
 export default function HomePage() {
     const [imageIds, setImageIds] = useState<string[]>([]);
