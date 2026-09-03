@@ -37,6 +37,11 @@ def estimate_sar_reliability(sar_array: np.ndarray, layover_shadow_mask: np.ndar
     """
     Estimates SAR reliability per-pixel in [0, 1].
     Lower where speckle-affected regions or provided layover/shadow mask indicates unreliable data.
+    
+    ASSUMPTION: If no layover/shadow mask is provided, the function defaults to 
+    a uniform moderate score (0.6) for non-extreme pixels. This is a baseline 
+    approximation, as calculating true layover/shadow without a DEM and precise 
+    sensor geometry is impossible.
     """
     if sar_array.ndim == 3:
         spatial_shape = sar_array.shape[1:]
