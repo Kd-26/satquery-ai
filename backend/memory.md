@@ -47,6 +47,17 @@
   - Executes `compare.compare_dates()` per requested target class, applying the shared valid mask to output distinct gain, loss, and net-change regions.
   - Plugs into `geometry.measure_regions()` to measure the physical area (in hectares/m²) of the gain and loss regions, strictly contingent on the absence of `"area_estimation"` physical restriction tags in the `ValidationResult`.
 
+### Phase 8 - Cross-Modal Fusion
+- **Chunk 8.1:** Created `backend/scientific_tools/reliability.py`:
+  - Implemented `estimate_optical_reliability` which drastically reduces reliability (to 0.1/0.2) where clouds/shadows are present or pixels are fully saturated (e.g., 255 for uint8).
+  - Implemented `estimate_sar_reliability` which penalizes speckle-affected extreme dB regions and defaults to a documented `0.6` uniform baseline when explicit layover/shadow masks are unavailable.
+- **Chunk 8.2:** Extended `executor.py` with `run_crossmodal_workflow()`:
+  - Dynamically routes the optical image to `seg_rgb_service` and the SAR image to `seg_sar_service`.
+  - Intelligently drops non-overlapping target classes between the two models (e.g. `cropland` dropped if SAR model only knows `water, built_up`) and warns the user via `ValidationResult.restrictions`.
+  - Calculates per-pixel, per-modality reliability arrays via `reliability.py`.
+  - Feeds probabilities and reliabilities into `fuse_evidence()` to compute mathematically sound joint probabilities.
+  - Generates explicit `unknown_{cls}` masks for regions where both sensors possess zero reliability (e.g., a pixel saturated in optical *and* in a SAR shadow) rather than allowing the AI to hallucinate an answer.
+
 ---
 
 ## Architectural Decisions

@@ -297,7 +297,13 @@ def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult) -
             
             fused_p = fusion["fused_probability"]
             scores_out[f"fused_{cls}"] = fused_p
-            masks_out[f"fused_{cls}"] = (fused_p > 0.5).astype(np.uint8)
+            
+            # Mark zero-reliability regions as unknown
+            unknown_mask = fusion["unknown_mask"]
+            masks_out[f"unknown_{cls}"] = unknown_mask.astype(np.uint8)
+            
+            # The mask for the class itself avoids guessing on unknown pixels
+            masks_out[f"fused_{cls}"] = ((fused_p > 0.5) & ~unknown_mask).astype(np.uint8)
             
     return {
         "masks": masks_out,
