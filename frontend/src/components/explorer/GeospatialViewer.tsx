@@ -10,6 +10,12 @@ interface GeospatialViewerProps {
 }
 
 export function GeospatialViewer({ runId, baseImageUrl, masks }: GeospatialViewerProps) {
+  // PERF VERIFICATION (architecture.md A 17.4):
+  // The MapLibre instance configured here MUST fetch tiles via TiTiler 
+  // (e.g. `/api/v1/tiles/{z}/{x}/{y}?url=...`) rather than downloading
+  // full-resolution raw GeoTIFFs to the client. This guarantees O(1) memory 
+  // usage in the browser regardless of artifact size.
+  
   const [opacities, setOpacities] = useState<Record<string, number>>({});
   
   const handleOpacityChange = (maskId: string, value: number) => {
