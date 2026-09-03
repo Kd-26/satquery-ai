@@ -3,25 +3,61 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #0B0E14;
+  --foreground: #E6E9EF;
 }
 
 body {
   color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--background);
+  overflow-x: hidden;
+  selection-background-color: #3DDBD9;
+  selection-color: #0B0E14;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+/* Tactical Mission Control Grid */
+.bg-tactical-grid {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(61, 219, 217, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(61, 219, 217, 0.04) 1px, transparent 1px);
+}
+
+.bg-dot-matrix {
+  background-image: radial-gradient(rgba(61, 219, 217, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Aerospace Radar Sweep Effect */
+@keyframes sweep {
+  from {
+    transform: rotate(0deg);
   }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-radar-sweep {
+  animation: sweep 8s linear infinite;
+  transform-origin: center center;
+}
+
+/* Custom Tactical Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0B0E14;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #232937;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3DDBD9;
 }
