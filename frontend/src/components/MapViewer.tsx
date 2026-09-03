@@ -8,7 +8,8 @@ export interface MapViewerProps {
 
 export const MapViewer: React.FC<MapViewerProps> = ({ imageIds, runResult }) => {
         const [opacity, setOpacity] = useState<number>(0.5);
-    const [sliderPos, setSliderPos] = useState<number>(50);
+        const [sliderPos, setSliderPos] = useState<number>(50);
+    const [viewMode, setViewMode] = useState<'optical' | 'sar' | 'fused'>('fused');
 
     const hasOverlays = runResult && (runResult.masks_ref || runResult.overlays_ref || runResult.status === 'done');
 
@@ -19,6 +20,20 @@ export const MapViewer: React.FC<MapViewerProps> = ({ imageIds, runResult }) => 
                 <div className="flex items-center gap-4">
                     <span className="font-semibold text-sm">Map Layers</span>
                     {imageIds.length === 2 && (
+                        <div className="flex items-center gap-2 text-sm border-l pl-4 ml-2">
+                            <span>View:</span>
+                            <select 
+                                className="border rounded p-1"
+                                value={viewMode}
+                                onChange={(e) => setViewMode(e.target.value as any)}
+                            >
+                                <option value="optical">Optical Only</option>
+                                <option value="sar">SAR Only</option>
+                                <option value="fused">Fused / Split</option>
+                            </select>
+                        </div>
+                    )}
+                    {imageIds.length === 2 && viewMode === 'fused' && (
                         <div className="flex items-center gap-2 text-sm border-l pl-4 ml-2">
                             <span>Before/After</span>
                             <input 
