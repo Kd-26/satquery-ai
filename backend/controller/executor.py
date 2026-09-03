@@ -206,6 +206,24 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
             masks_out[f"gain_{cls}"] = comp["gain"]
             masks_out[f"loss_{cls}"] = comp["loss"]
             masks_out[f"net_change_{cls}"] = comp["net_change"]
+            
+    if "area_estimate" in plan.requested_outputs:
+        is_restricted = any("area_estimation" in r for r in validation.restrictions)
+        if not is_restricted and profile_t1.pixel_spacing_m and profile_t1.crs:
+            from backend.scientific_tools.geometry import measure_regions
+            for cls in plan.target_classes:
+                if f"gain_{cls}" in masks_out:
+                    measurements_out[f"gain_{cls}_area"] = measure_regions(
+                        masks_out[f"gain_{cls}"],
+                        pixel_spacing_m=profile_t1.pixel_spacing_m,
+                        crs=profile_t1.crs
+                    )
+                if f"loss_{cls}" in masks_out:
+                    measurements_out[f"loss_{cls}_area"] = measure_regions(
+                        masks_out[f"loss_{cls}"],
+                        pixel_spacing_m=profile_t1.pixel_spacing_m,
+                        crs=profile_t1.crs
+                    )
     
     return {
         "masks": masks_out,

@@ -40,6 +40,13 @@
   - Executes `optional_tools` (like `compute_spectral_index:NDWI`) via `scientific_tools`, injecting physical properties dynamically.
   - Emits extensive trace telemetry mapping to the `execution_traces` DB schema.
 
+### Phase 7.1 - Temporal Workflow
+- **Chunk 7.1:** Extended `executor.py` with `run_temporal_workflow()`:
+  - Reuses the `run_single_image_workflow()` pipeline independently for T1 and T2 images by mutating the ExecutionPlan.
+  - Computes a shared strict `valid_mask` derived from the intersection of valid pixels in both the T1 and T2 raw rasters.
+  - Executes `compare.compare_dates()` per requested target class, applying the shared valid mask to output distinct gain, loss, and net-change regions.
+  - Plugs into `geometry.measure_regions()` to measure the physical area (in hectares/m²) of the gain and loss regions, strictly contingent on the absence of `"area_estimation"` physical restriction tags in the `ValidationResult`.
+
 ---
 
 ## Architectural Decisions
