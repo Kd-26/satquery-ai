@@ -32,6 +32,34 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
                     approved = False
                     errors.append(f"Model {model_id} requires bands {req_bands}, but profile {profile.image_id} is missing {missing_bands}.")
                     
+    # Check (5): resolution and sensor-family domain-shift
+    # To respect "configurable factor", we use a hardcoded 5.0 here (would normally read from settings)
+    RESOLUTION_FACTOR = 5.0
+    
+    for model_id in plan.required_models:
+        try:
+            model = registry_loader.get_by_id(model_id)
+        except registry_loader.RegistryEntryNotFoundError:
+            continue
+            
+        for profile in profiles:
+            if model.resolution_range_m and profile.pixel_spacing_m:
+                min_res, max_res = model.resolution_range_m[0], model.resolution_range_m[1]
+                px = profile.pixel_spacing_m
+                
+                if px < min_res / RESOLUTION_FACTOR or px > max_res * RESOLUTION_FACTOR:
+                    approved = False
+                    errors.append(f"Model {model_id} resolution range [{min_res}, {max_res}]m is strictly incompatible with {px}m.")
+                elif px < min_res or px > max_res:
+                    restrictions.append(f"Model {model_id} resolution mismatch: trained for [{min_res}, {max_res}]m, input is {px}m. Treating outputs as extrapolated.")
+                    confidence_caps[model_id] = 0.5
+                    
+            if profile.sensor_family == "unknown":
+                restrictions.append(f"Sensor family unverified for {profile.image_id} - domain-shift risk cannot be assessed.")
+            elif model.known_domain_shift_sensors and profile.sensor_family in model.known_domain_shift_sensors:
+                restrictions.append(f"Model {model_id} sensor domain-shift risk: running on {profile.sensor_family}.")
+                confidence_caps[model_id] = 0.5
+
     # Check (3): area_estimate restriction logic
     if "area_estimate" in plan.requested_outputs:
         for profile in profiles:
