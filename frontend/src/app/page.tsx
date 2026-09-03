@@ -105,11 +105,15 @@ export default function HomePage() {
  )}
  
  {runResult && runResult.status === 'done' && (
- <div className="p-4 bg-panel border border-success rounded-lg text-success">
- <h3 className="font-semibold mb-2">Answer:</h3>
- <p className="whitespace-pre-wrap">{runResult.answer ||"Analysis complete."}</p>
- </div>
- )}
+                        <div className="flex flex-col gap-2">
+                            <EvidencePanel runResult={runResult} />
+                            <TracePanel traces={runResult.traces} />
+                            <ReportExport runId={runId as string} />
+                            <a href={`/explorer/${runId}`} className="block text-center mt-4 text-accent hover:underline text-sm font-medium py-2 bg-panel-raised border border-subtle rounded-md transition-colors hover:bg-subtle">
+                                Open in Evidence Explorer &rarr;
+                            </a>
+                        </div>
+                    )}
  
  {runResult && runResult.status === 'error' && (
  <div className="p-4 bg-panel border border-danger rounded-lg text-danger">
