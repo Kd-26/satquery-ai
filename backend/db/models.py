@@ -99,3 +99,17 @@ class FeedbackTag(SQLModel, table=True):
     tag: FeedbackTagEnum
     reviewer_note: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+def regions_touching_point(session: Session, lon: float, lat: float) -> list[Region]:
+    """
+    Returns regions that contain the given (lon, lat) point.
+    """
+    point = f'SRID=4326;POINT({lon} {lat})'
+    # ST_Intersects or ST_Contains
+    query = session.query(Region).filter(
+        func.ST_Intersects(Region.geometry, func.ST_GeomFromEWKT(point))
+    )
+    return query.all()
