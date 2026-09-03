@@ -20,6 +20,7 @@ export default function RootLayout({
  <body
  className={`${inter.variable} ${jetbrainsMono.variable} antialiased bg-primary text-text-primary font-sans`}
  >
+        <Providers>
  <nav className="p-4 bg-panel border-b border-subtle flex gap-4 text-sm font-medium">
  <a href="/" className="text-text-secondary hover:text-text-primary transition-colors">Home (Quick Query)</a>
  <a href="/benchmark" className="text-text-secondary hover:text-text-primary transition-colors">Benchmark</a>
