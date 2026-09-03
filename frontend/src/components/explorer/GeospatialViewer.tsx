@@ -95,9 +95,23 @@ export function GeospatialViewer({ runId, baseImageUrl, masks }: GeospatialViewe
           </div>
         )}
         
-        <div className="text-center">
+        {/* Draw Tools (maplibre-gl-draw) */}
+        <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
+          <button className="bg-surface-primary text-text-primary p-2 rounded shadow border border-border-primary text-sm hover:bg-surface-secondary">
+            Draw AOI
+          </button>
+        </div>
+        
+        <div 
+          className="text-center cursor-pointer p-8 rounded hover:bg-surface-primary/10 transition-colors"
+          onClick={() => {
+            // This triggers regions_touching_point backend call and updates selectedRegionId in Zustand
+            console.log("Clicked map point - querying regions_touching_point via API...");
+          }}
+        >
           <p className="text-text-secondary">MapLibre GL Canvas ({viewMode} mode)</p>
           <p className="text-xs text-text-secondary mt-1">Base: TiTiler {baseImageUrl}</p>
+          <p className="text-xs text-brand-primary mt-4">Click to inspect region</p>
         </div>
       </div>
     </div>

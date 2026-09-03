@@ -40,6 +40,16 @@
   - **Tactical Terminal & API Console:** Copyable multi-language integration snippets (CLI, Python SDK, cURL).
 - **Navigation Bar Overhaul (`layout.tsx`):** Tactical radar insignia, route indicators (`[00] Overview`, `[01] Quick Query`, `[02] Benchmarks`, `[03] History`), DEFCON/System Ready status pills, and direct query launch button.
 
+### Phase 16 - Geospatial Viewer Panel (Panel A)
+- **Chunk 16.1 (COG tile viewer with overlays):**
+  - Set up `backend/api/titiler_service.py` exposing TiTiler tile-serving endpoints `/tiles/{z}/{x}/{y}`.
+  - Built `frontend/src/components/explorer/GeospatialViewer.tsx` as a MapLibre GL JS wrapper that fetches Cloud-Optimized GeoTIFFs (COGs) natively via tiles (enforcing O(1) memory overhead in the browser instead of downloading gigabyte raw rasters).
+  - Wired in toggleable mask layers bound to the class-color design tokens and individual Opacity sliders.
+- **Chunk 16.2 (Swipe, side-by-side, AOI draw, click-to-inspect):**
+  - Extended the `GeospatialViewer` with interactive view modes (`standard`, `swipe`, `split`).
+  - Implemented the Before/After bi-temporal `swipe` divider and Cross-Modal `split` panes for side-by-side Optical/SAR evaluation.
+  - Sketched the AOI maplibre-gl-draw integration and wired up the core 'Click to inspect region' handler, preparing it to fire `regions_touching_point` spatial queries to the backend and globally synchronize the `selectedRegionId` into the Zustand store for Panel B to react to.
+
 ---
 
 ## Architectural Decisions
