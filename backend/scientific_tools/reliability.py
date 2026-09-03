@@ -32,3 +32,33 @@ def estimate_optical_reliability(image_array: np.ndarray, cloud_mask: np.ndarray
     
     result = np.broadcast_to(reliability, image_array.shape).astype(np.float32)
     return np.clip(result, 0.0, 1.0)
+
+def estimate_sar_reliability(sar_array: np.ndarray, layover_shadow_mask: np.ndarray = None) -> np.ndarray:
+    """
+    Estimates SAR reliability per-pixel in [0, 1].
+    Lower where speckle-affected regions or provided layover/shadow mask indicates unreliable data.
+    """
+    if sar_array.ndim == 3:
+        spatial_shape = sar_array.shape[1:]
+    else:
+        spatial_shape = sar_array.shape
+        
+    reliability = np.ones(spatial_shape, dtype=np.float32)
+    
+    if layover_shadow_mask is not None:
+        reliability[layover_shadow_mask > 0] = 0.1
+    else:
+        # Default to a uniform moderate score if no mask is available
+        reliability.fill(0.6)
+        
+    # Heuristic for speckle/noise: extreme values in SAR (very high or very low) are less reliable
+    if sar_array.ndim == 3:
+        # Check standard deviation across channels if available, or just extreme values
+        extreme = np.any((sar_array < -30) | (sar_array > 10), axis=0) # Assuming dB scale
+    else:
+        extreme = (sar_array < -30) | (sar_array > 10)
+        
+    reliability[extreme] = np.minimum(reliability[extreme], 0.3)
+    
+    result = np.broadcast_to(reliability, sar_array.shape).astype(np.float32)
+    return np.clip(result, 0.0, 1.0)
