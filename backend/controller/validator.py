@@ -40,6 +40,23 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
                     restrictions.append(f"area_estimate disabled for {profile.image_id}: {restriction}")
                     # Does not set approved = False
 
+        # Check (2): temporal workflow compatibility
+    if plan.workflow == 'temporal':
+        from backend.scientific_tools.alignment import check_pair_compatibility
+        if len(profiles) >= 2:
+            align_res = check_pair_compatibility(profiles[0], profiles[1])
+            if not align_res.get('compatible'):
+                approved = False
+                errors.append("Temporal workflow selected but image pair is not compatible (CRS/bbox mismatch).")
+                
+    # Check (4): final_adapter existence
+    if plan.final_adapter:
+        try:
+            registry_loader.get_by_id(plan.final_adapter)
+        except registry_loader.RegistryEntryNotFoundError:
+            approved = False
+            errors.append(f"Adapter {plan.final_adapter} not found in registry.")
+            
     return ValidationResult(
         approved=approved,
         restrictions=restrictions,
