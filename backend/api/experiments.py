@@ -46,3 +46,55 @@ def api_get_experiment(experiment_id: str, session: Session = Depends(get_sessio
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from pydantic import BaseModel
+import json
+from pathlib import Path
+from backend.db.models import FeedbackTag, FeedbackTagEnum
+
+class CorrectionRequest(BaseModel):
+    evidence_node_id: str
+    geometry_geojson: dict
+    operation: str # "include" or "exclude"
+
+@router.post("/experiments/{experiment_id}/corrections")
+def api_save_correction(experiment_id: str, request: CorrectionRequest, session: Session = Depends(get_session)):
+    """
+    Stores a manual mask correction in the database and appends it to run_manifest.json.
+    """
+    try:
+        exp = session.query(Experiment).filter(Experiment.id == uuid.UUID(experiment_id)).first()
+        if not exp:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+            
+        # 1. Save to database as a feedback tag
+        correction_tag = FeedbackTag(
+            evidence_node_id=uuid.UUID(request.evidence_node_id),
+            tag=FeedbackTagEnum.accepted, # assuming manual correction implies accepting the rest and fixing it
+            reviewer_note=f"Manual {request.operation} correction applied via UI"
+        )
+        session.add(correction_tag)
+        session.commit()
+        
+        # 2. Append to run_manifest.json (Commit 3)
+        # Assumes run_manifest.json exists in artifacts
+        manifest_path = Path(f"./artifacts/{exp.parent_run_id}/run_manifest.json")
+        if manifest_path.exists():
+            with open(manifest_path, "r") as f:
+                manifest = json.load(f)
+            
+            correction_entry = {
+                "experiment_id": experiment_id,
+                "evidence_node_id": request.evidence_node_id,
+                "operation": request.operation,
+                "geometry": request.geometry_geojson,
+                "timestamp": str(correction_tag.created_at)
+            }
+            manifest.setdefault("user_corrections", []).append(correction_entry)
+            
+            with open(manifest_path, "w") as f:
+                json.dump(manifest, f, indent=2)
+                
+        return {"status": "success", "message": "Correction saved and appended to manifest"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
