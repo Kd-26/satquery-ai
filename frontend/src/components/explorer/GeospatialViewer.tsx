@@ -84,6 +84,17 @@ export function GeospatialViewer({ runId, baseImageUrl, masks }: GeospatialViewe
           </div>
         )}
         
+        {viewMode === 'split' && (
+          <div className="absolute inset-0 flex">
+            <div className="w-1/2 h-full border-r border-brand-primary/50 relative">
+              <div className="absolute top-4 right-4 bg-surface-primary/80 px-2 py-1 text-xs text-text-primary rounded">Optical</div>
+            </div>
+            <div className="w-1/2 h-full relative">
+              <div className="absolute top-4 right-4 bg-surface-primary/80 px-2 py-1 text-xs text-text-primary rounded">SAR</div>
+            </div>
+          </div>
+        )}
+        
         <div className="text-center">
           <p className="text-text-secondary">MapLibre GL Canvas ({viewMode} mode)</p>
           <p className="text-xs text-text-secondary mt-1">Base: TiTiler {baseImageUrl}</p>
