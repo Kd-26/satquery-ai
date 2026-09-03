@@ -115,12 +115,29 @@ export default function ExperimentPanel({ runId }: { runId: string }) {
             </div>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex gap-2 mb-4">
             <Button variant="secondary" className="flex-1" onClick={() => setExperimentResult(null)}>
               Discard
             </Button>
             <Button className="flex-1">
               Save as New Run
+            </Button>
+          </div>
+
+          <div className="border-t border-border-primary pt-4">
+            <h4 className="text-sm font-medium text-text-primary mb-2">Manual Mask Correction</h4>
+            <p className="text-xs text-text-secondary mb-3">
+              Use maplibre-gl-draw to manually add or subtract pixels from the current mask. 
+              These corrections are logged in the reproducibility manifest.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="secondary" className="flex-1 text-xs py-1">Draw Include (+)</Button>
+              <Button variant="secondary" className="flex-1 text-xs py-1">Draw Exclude (-)</Button>
+            </div>
+            <Button className="w-full mt-2 text-xs py-1" onClick={() => {
+               console.log("Saving correction to /api/v1/experiments/{experiment_id}/corrections");
+            }}>
+              Save Correction
             </Button>
           </div>
         </div>
