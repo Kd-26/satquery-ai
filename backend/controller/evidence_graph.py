@@ -121,3 +121,25 @@ def get_evidence_graph(session: Session, run_id: str) -> Dict[str, Any]:
         nd["children"] = children_map.get(node_id, [])
         
     return {"run_id": run_id, "evidence_graph": roots}
+
+def get_node_lineage(session: Session, node_id: str) -> List[Dict[str, Any]]:
+    """
+    Walks parent_node_id up to the root, for a single claim's full evidence chain.
+    """
+    lineage = []
+    current_node = session.query(EvidenceNode).filter(EvidenceNode.id == uuid.UUID(node_id)).first()
+    
+    while current_node:
+        lineage.append({
+            "id": str(current_node.id),
+            "type": current_node.node_type.value,
+            "content": current_node.content_json
+        })
+        if current_node.parent_node_id:
+            current_node = session.query(EvidenceNode).filter(EvidenceNode.id == current_node.parent_node_id).first()
+        else:
+            current_node = None
+            
+    # Return from root to leaf, or leaf to root? Usually leaf to root is fine, but let's reverse to root->leaf
+    lineage.reverse()
+    return lineage
