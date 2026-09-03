@@ -104,6 +104,6 @@ export const UploadPanel: React.FC<UploadPanelProps> = ({ onUploadComplete }) =>
  </div>
  
  {error && <p className="text-danger mt-2 text-sm">{error}</p>}
- </div>
+ </Panel>
  );
 };

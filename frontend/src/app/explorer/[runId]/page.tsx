@@ -7,8 +7,8 @@ import { useExplorerStore } from '../../../state/explorerStore';
 export default function EvidenceExplorerPage() {
     const params = useParams();
     const runId = params.runId as string;
-    const selectedRegionId = useExplorerStore(state => state.selectedRegionId);
-    const setSelectedRegionId = useExplorerStore(state => state.setSelectedRegionId);
+    const selectedRegionId = useExplorerStore((state: any) => state.selectedRegionId);
+    const setSelectedRegionId = useExplorerStore((state: any) => state.setSelectedRegionId);
 
     return (
         <main className="min-h-screen p-8 flex flex-col h-screen">

@@ -10,12 +10,12 @@ interface ExplorerState {
     setPanelLayout: (layout: 'split' | 'map-only' | 'analysis-only') => void;
 }
 
-export const useExplorerStore = create<ExplorerState>((set) => ({
+export const useExplorerStore = create<ExplorerState>((set: any) => ({
     selectedRegionId: null,
     activeExperimentId: null,
     panelLayout: 'split',
     
-    setSelectedRegionId: (id) => set({ selectedRegionId: id }),
-    setActiveExperimentId: (id) => set({ activeExperimentId: id }),
-    setPanelLayout: (layout) => set({ panelLayout: layout }),
+    setSelectedRegionId: (id: string | null) => set({ selectedRegionId: id }),
+    setActiveExperimentId: (id: string | null) => set({ activeExperimentId: id }),
+    setPanelLayout: (layout: 'split' | 'map-only' | 'analysis-only') => set({ panelLayout: layout }),
 }));

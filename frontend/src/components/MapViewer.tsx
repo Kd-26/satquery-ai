@@ -68,13 +68,13 @@ export const MapViewer: React.FC<MapViewerProps> = ({ imageIds, runResult }) => 
  <div className="w-3/4 h-3/4 border-4 border-dashed border-subtle flex items-center justify-center bg-subtle relative">
  {imageIds.length === 2 ? (
  <>
- <div className="absolute inset-0 bg-subtle flex items-center justify-start pl-4 overflow-hidden" style={{ width: \\%\ }}>
+ <div className="absolute inset-0 bg-subtle flex items-center justify-start pl-4 overflow-hidden" style={{ width: `${sliderPos}%` }}>
  <span className="text-text-secondary font-medium z-0 whitespace-nowrap">T1 Image ({imageIds[0]})</span>
  </div>
- <div className="absolute inset-0 bg-gray-400 flex items-center justify-end pr-4 overflow-hidden" style={{ left: \\%\, width: \\%\ }}>
+ <div className="absolute inset-0 bg-gray-400 flex items-center justify-end pr-4 overflow-hidden" style={{ left: `${sliderPos}%` }}>
  <span className="text-text-primary font-medium z-0 whitespace-nowrap">T2 Image ({imageIds[1]})</span>
  </div>
- <div className="absolute top-0 bottom-0 w-1 bg-panel cursor-ew-resize z-20" style={{ left: \\%\ }} />
+ <div className="absolute top-0 bottom-0 w-1 bg-panel cursor-ew-resize z-20" style={{ left: `${sliderPos}%` }} />
  </>
  ) : (
  <span className="text-text-secondary font-medium z-0">Base Image Render (ID: {imageIds[0]})</span>

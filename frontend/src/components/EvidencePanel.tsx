@@ -89,6 +89,6 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({ runResult }) => {
  </ul>
  </div>
  )}
- </div>
+ </Panel>
  );
 };

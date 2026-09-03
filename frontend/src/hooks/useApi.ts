@@ -5,7 +5,7 @@ export function useRun(runId: string | null) {
         queryKey: ['run', runId],
         queryFn: async () => {
             if (!runId) return null;
-            const res = await fetch(/api/v1/runs/$runId);
+            const res = await fetch(`/api/v1/runs/${runId}`);
             if (!res.ok) throw new Error('Failed to fetch run');
             return res.json();
         },
@@ -19,7 +19,7 @@ export function useEvidenceGraph(runId: string | null) {
         queryKey: ['evidenceGraph', runId],
         queryFn: async () => {
             if (!runId) return null;
-            const res = await fetch(/api/v1/runs/$runId/graph);
+            const res = await fetch(`/api/v1/runs/${runId}/graph`);
             if (!res.ok) throw new Error('Failed to fetch evidence graph');
             return res.json();
         },

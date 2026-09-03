@@ -1,3 +1,4 @@
+import { Providers } from "./providers";
 import type { Metadata } from"next";
 import { Inter, JetBrains_Mono } from"next/font/google";
 import"./globals.css";
@@ -27,6 +28,7 @@ export default function RootLayout({
  <a href="/history" className="text-text-secondary hover:text-text-primary transition-colors">History</a>
  </nav>
  {children}
+ </Providers>
  </body>
  </html>
  );

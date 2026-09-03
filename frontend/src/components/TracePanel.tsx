@@ -68,6 +68,6 @@ export const TracePanel: React.FC<TracePanelProps> = ({ traces }) => {
  </div>
  </div>
  )}
- </div>
+ </Panel>
  );
 };

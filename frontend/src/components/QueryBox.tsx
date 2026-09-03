@@ -73,6 +73,6 @@ export const QueryBox: React.FC<QueryBoxProps> = ({ imageIds, onSubmit, isLoadin
  </p>
  )}
  </form>
- </div>
+ </Panel>
  );
 };
