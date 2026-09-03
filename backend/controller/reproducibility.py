@@ -45,6 +45,15 @@ def register_stac_item(image_id_or_run_id: str, asset_type: str, file_path: str,
             }, f)
 
 def write_run_manifest(run_id: str, plan: Any, evidence: Any, profiles: List[Any]) -> None:
+    """
+    Writes the reproducibility manifest to ./artifacts/{run_id}/run_manifest.json.
+    
+    IMPORTANT ARCHITECTURAL RULE:
+    This manifest is the SINGLE SOURCE OF TRUTH for notebook export (Phase 19.2).
+    The notebook generator must NOT re-derive metadata, versions, or checksums independently.
+    It must exactly reconstruct the run based purely on this JSON file to prevent drift 
+    between what executed and what is exported.
+    """
     manifest_path = Path(f"./artifacts/{run_id}/run_manifest.json")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     

@@ -63,6 +63,11 @@
 - **Chunk 9.2 (Answerer):** Implemented dual-register output generation (`technical` and `plain_language`) inside `answerer.py`. Crucially, strictly barred raw raster data or high-resolution masks from entering the VLM prompt—passing only the pre-serialized numeric `claims` and `limitations` strings. Ensured the plain-language response never drops technical limitations.
 - **Chunk 9.3 (Verifier):** Added `verify_answer` in `verifier.py` to fact-check the VLM's generated answer text. Used regex to extract numeric measurements and UUIDs, comparing them strictly (with a narrow 5% tolerance) against the official `evidence.claims`. Included a `get_conservative_fallback` mechanism to override the VLM with a strict templated dump of the evidence array whenever hallucinations (unbacked numbers/IDs) are detected.
 
+### Phase 15 - Evidence Graph, PostGIS & STAC Backend Layer
+- **Chunk 15.1 (PostGIS schema):** Extended `models.py` with the robust relational data model required for advanced UI flows. Added the `regions` table powered by `geoalchemy2` Geometry types (supporting `regions_touching_point` spatial queries) and the core `evidence_nodes`, `experiments`, and `feedback_tags` tables.
+- **Chunk 15.2 (Evidence graph builder):** Wrote `build_evidence_graph` in `evidence_graph.py` to explode the flat EvidencePackage into a fully linked parent-child DB graph (`claim` -> `measurement` -> `region` -> `mask` -> `model` -> `input`). Provided standard JSON traversal helpers (`get_evidence_graph`, `get_node_lineage`) for the Explorer's frontend to visualize the pipeline's exact lineage.
+- **Chunk 15.3 (STAC catalog & Reproducibility):** Developed `reproducibility.py` featuring a `pystac` asset registry pipeline. Implemented `write_run_manifest()` to securely dump `input_checksums`, explicit `model_versions`, and core pip `software_versions` to a static `./artifacts/{run_id}/run_manifest.json`, explicitly locking it in as the single incontrovertible source of truth for the forthcoming Phase 19 Jupyter notebook generator.
+
 ---
 
 ## Architectural Decisions
