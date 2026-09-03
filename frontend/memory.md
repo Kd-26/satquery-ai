@@ -50,6 +50,16 @@
   - Implemented the Before/After bi-temporal `swipe` divider and Cross-Modal `split` panes for side-by-side Optical/SAR evaluation.
   - Sketched the AOI maplibre-gl-draw integration and wired up the core 'Click to inspect region' handler, preparing it to fire `regions_touching_point` spatial queries to the backend and globally synchronize the `selectedRegionId` into the Zustand store for Panel B to react to.
 
+### Phase 17 - Scientific Analysis & Processing History Panels
+- **Chunk 17.1 (Scientific Analysis Panel - Panel B):**
+  - Designed `AnalysisPanel.tsx` as a reactive data-display component listening to `selectedRegionId` via the Zustand store.
+  - Implemented backend endpoint `GET /api/v1/regions/{region_id}/metrics` querying the DB node lineage for scientific measurements.
+  - Populated the UI with precise, monospace rendering of Area, Confidence, Spectral Indices (NDVI), Cloud Cover %, and SAR Backscatter properties via the `DataReadout` token. Included strict empty states to prevent blank panels when no region is selected.
+- **Chunk 17.2 (Processing History Panel - Panel C):**
+  - Developed `ProcessingHistoryPanel.tsx` representing the execution timeline (from Input Validation down to VLM Explanation).
+  - Wired in cryptographic accountability: clicking a step reveals the exact parameters used, the hyper-specific `model_version`, and provides a direct download link to the intermediate artifact generated.
+  - Adopted `react-window` to aggressively virtualize the timeline component, assuring stable 60FPS UI rendering even when temporal/cross-modal runs emit 30+ sequential trace steps.
+
 ---
 
 ## Architectural Decisions
