@@ -88,3 +88,36 @@ def build_evidence_graph(session: Session, run_id: str, evidence: EvidencePackag
                 session.add(input_node)
                 
     session.commit()
+
+def get_evidence_graph(session: Session, run_id: str) -> Dict[str, Any]:
+    """
+    Returns a nested JSON traversal of the graph for the frontend's useEvidenceGraph hook.
+    """
+    nodes = session.query(EvidenceNode).filter(EvidenceNode.run_id == run_id).all()
+    
+    # Build an adjacency list: parent_id -> list of child nodes
+    from collections import defaultdict
+    children_map = defaultdict(list)
+    roots = []
+    
+    node_dicts = {}
+    for node in nodes:
+        nd = {
+            "id": str(node.id),
+            "type": node.node_type.value,
+            "content": node.content_json,
+            "children": []
+        }
+        node_dicts[node.id] = nd
+        
+    for node in nodes:
+        if node.parent_node_id:
+            children_map[node.parent_node_id].append(node_dicts[node.id])
+        else:
+            roots.append(node_dicts[node.id])
+            
+    # Link children
+    for node_id, nd in node_dicts.items():
+        nd["children"] = children_map.get(node_id, [])
+        
+    return {"run_id": run_id, "evidence_graph": roots}
