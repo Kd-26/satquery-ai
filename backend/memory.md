@@ -25,6 +25,13 @@
   - **Check 3 (Area Restriction Degradation):** Degrades gracefully if `area_estimate` is requested on an uncalibrated raster (adds restriction note rather than rejecting whole plan).
   - **Check 4 (Adapter Validation):** Verifies `final_adapter` exists in the registry.
   - **Check 5 (Resolution & Sensor Domain Shift):** Enforces $>5\times$ resolution mismatch as a hard rejection (`approved = False`). Caps confidence at 0.5 for minor resolution shifts or known domain-shift sensors (e.g. Cartosat-2S on RGB models, case-insensitive). Warns on unverified sensors.
+  
+### Phase 6 - Executor: Single-Image Workflow
+- **Chunk 6.2:** Implemented `prepare_model_input(image_id, model_id)` in `backend/controller/preprocessing.py`:
+  - Dynamically reads `input_contract` from the registry and extracts physical properties (bands, scaling, normalization).
+  - Uses `raster_io.read_bands` to load rasters, reordering them to match the exact contract required by the target model.
+  - Slices image into non-overlapping tiles if the array dimensions exceed the `min_resolution_px` bounds, recording bounding offsets (`tile_transforms`) for post-processing assembly.
+  - Enforces strict validation: Raises `IncompatibleInputError` if a requested band (e.g. `VV`, `NIR`) is missing from the underlying `InputProfile`.
 
 ---
 

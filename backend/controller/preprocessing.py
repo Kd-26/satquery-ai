@@ -35,8 +35,7 @@ def prepare_model_input(image_id: str, model_id: str) -> dict:
         if rb in actual_band_identities:
             band_indices.append(actual_band_identities.index(rb))
         else:
-            # Fallback for missing bands before error handling is added in commit 3
-            band_indices.append(0)
+            raise IncompatibleInputError(f"Required band/polarization '{rb}' is missing from the image's InputProfile.")
             
     # rasterio bands are 1-indexed
     tensor = read_bands(file_path, band_indices=[i + 1 for i in band_indices])
