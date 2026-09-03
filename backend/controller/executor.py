@@ -279,6 +279,26 @@ def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult) -
     measurements_out = {}
     tool_outputs = {}
     
+    from backend.scientific_tools.reliability import estimate_optical_reliability, estimate_sar_reliability
+    from backend.scientific_tools.fuse import fuse_evidence
+    
+    rt_opt = read_bands(str(list(Path(f"./artifacts/{image_opt}").glob("original.*"))[0]))
+    rt_sar = read_bands(str(list(Path(f"./artifacts/{image_sar}").glob("original.*"))[0]))
+    
+    q_opt = estimate_optical_reliability(rt_opt, cloud_mask=None)
+    q_sar = estimate_sar_reliability(rt_sar, layover_shadow_mask=None)
+    
+    for cls in target_classes:
+        p_opt = res_opt["scores"].get(f"{model_opt.id}_{cls}")
+        p_sar = res_sar["scores"].get(f"{model_sar.id}_{cls}")
+        
+        if p_opt is not None and p_sar is not None:
+            fusion = fuse_evidence(p_opt, q_opt, p_sar, q_sar)
+            
+            fused_p = fusion["fused_probability"]
+            scores_out[f"fused_{cls}"] = fused_p
+            masks_out[f"fused_{cls}"] = (fused_p > 0.5).astype(np.uint8)
+            
     return {
         "masks": masks_out,
         "scores": scores_out,
