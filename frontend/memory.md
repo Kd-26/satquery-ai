@@ -30,3 +30,5 @@
   - A **Before/After slider** for temporal workflows (T1 vs T2 comparison).
   - A **Cross-Modal view toggle** allowing users to switch between Optical-only, SAR-only, and Fused views.
 - **Chunk 10.3 (Evidence, Trace, Export):** Implemented EvidencePanel.tsx with a Plain/Technical language toggle, TracePanel.tsx to view the step-by-step machine execution trace, and ReportExport.tsx to trigger PDF downloads of the run results. Styled with strict monospace fonts for mathematical outputs.
+- **Chunk 13.1 (Design Tokens):** Overhauled 	ailwind.config.ts with the dark 'Mission Control' theme colors, mask class colors, and consistent transition/border tokens. Configured 
+ext/font/google to load 'Inter' (sans) and 'JetBrains Mono' (mono) globally in layout.tsx.
