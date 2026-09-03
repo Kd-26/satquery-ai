@@ -35,3 +35,4 @@ The ML team is responsible for the actual deep learning components and deploying
 Specifically (so far):
 1. **VLM Service Endpoint:** In Chunk 5.1, we stubbed `model_services.vlm_service.inference`. The ML team needs to implement the actual `generate(prompt, images, adapter)` function that calls the vision-language model.
 2. **Microservices for Models:** The YAML files in `backend/registry/models/` map to endpoints (e.g., `http://seg-rgb-service:8001/infer`). The ML team must build and deploy these models to those ports. The backend expects them to honor the `input_contract` defined in their respective YAML files.
+- **Chunk 5.2:** Created ackend/controller/validator.py with alidate_plan() to strictly enforce model compatibility. It checks that models exist, bands match, applies the domain-shift logic from registry files, limits confidence if the resolution is slightly mismatched, and outright rejects the plan if the resolution gap is too large (> 5x).
