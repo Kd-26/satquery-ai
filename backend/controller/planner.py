@@ -44,3 +44,27 @@ def _build_planner_prompt(query: str, input_profiles: list[InputProfile]) -> str
         f"JSON SCHEMA:\n{json.dumps(schema_json, indent=2)}\n"
     )
     return prompt
+
+def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -> ExecutionPlan:
+    prompt = _build_planner_prompt(query, input_profiles)
+    
+    response_text = inference.generate(prompt=prompt, images=image_ids, adapter=None)
+    
+    try:
+        return ExecutionPlan.model_validate_json(response_text)
+    except Exception as e:
+        parse_error = str(e)
+        
+    retry_prompt = (
+        f"{prompt}\n\n"
+        "ATTENTION: Your previous response failed to parse as valid JSON matching the schema.\n"
+        f"ERROR DETAILS: {parse_error}\n"
+        "Please fix the error and respond ONLY with the valid JSON object."
+    )
+    
+    retry_response = inference.generate(prompt=retry_prompt, images=image_ids, adapter=None)
+    
+    try:
+        return ExecutionPlan.model_validate_json(retry_response)
+    except Exception as e:
+        raise PlannerParseError(f"Failed to parse ExecutionPlan after retry. Final error: {e}")
