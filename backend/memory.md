@@ -73,6 +73,11 @@
 - **Chunk 18.2 (Experiment Panel UI):** (Frontend) Built the dynamic `ExperimentPanel.tsx` holding sliders and toggles for adjusting scientific parameters. Implemented a split-screen view allowing users to evaluate the newly computed experiment mask side-by-side against the baseline parent run before choosing to "Save as New Run". Code-split via Next.js dynamic import.
 - **Chunk 18.3 (Manual mask correction):** Engineered the `POST /api/v1/experiments/{experiment_id}/corrections` API endpoint. This powerful tool accepts explicit geometry patches (include/exclude GeoJSON) drawn by the user on the map. It commits the modification directly into the `feedback_tags` database for provenance, and crucially appends it to `run_manifest.json.user_corrections`, preserving manual scientific tuning for exact reproducibility.
 
+### Phase 19 - Export, Reproducible Notebooks & Feedback Loop
+- **Chunk 19.1 (Export endpoints):** Implemented the full suite of data egress APIs in `exports.py`: GeoTIFF (rasters), GeoJSON (vectors), CSV (measurements), STAC (catalog), and PDF (audit report). Bound them to the frontend via the `ExportMenu.tsx` dropdown.
+- **Chunk 19.2 (Reproducible notebook generation):** Wrote `notebook_export.py` with `generate_notebook()`. This is a critical architectural guarantee: the notebook is synthesized *strictly* from the run's locked `run_manifest.json`, dynamically writing `nbformat` code cells that install pinned PIP packages and load checksum-verified rasters. This mathematically prevents the exported Jupyter notebook from drifting from the actual execution trace.
+- **Chunk 19.3 (Active-learning feedback loop):** Built `EvidenceTagControl.tsx` for the UI (Accepted/Needs Review/Rejected badges). Wired it to a new `POST /api/v1/evidence-nodes/{node_id}/feedback` endpoint appending to the `feedback_tags` DB. Finally, bridged the gap to the ML team by writing `training/data_prep/feedback_export.py`—a utility that dumps only vetted, user-corrected masks into a JSON manifest, closing the active-learning loop without unsafely auto-triggering retraining.
+
 ---
 
 ## Architectural Decisions
