@@ -58,6 +58,11 @@
   - Feeds probabilities and reliabilities into `fuse_evidence()` to compute mathematically sound joint probabilities.
   - Generates explicit `unknown_{cls}` masks for regions where both sensors possess zero reliability (e.g., a pixel saturated in optical *and* in a SAR shadow) rather than allowing the AI to hallucinate an answer.
 
+### Phase 9 - Evidence Package, Answerer, Verifier
+- **Chunk 9.1 (Evidence Package):** Implemented `build_evidence_package` in `evidence.py` to translate technical executor measurements into a structured `EvidencePackage`. Persisted all masks/overlays physically to `./artifacts/{run_id}/...`, clamped final `confidence` variables to the strict bounds imposed by the `ValidationResult.confidence_caps`, and forwarded all validation restrictions into user-facing `limitations`.
+- **Chunk 9.2 (Answerer):** Implemented dual-register output generation (`technical` and `plain_language`) inside `answerer.py`. Crucially, strictly barred raw raster data or high-resolution masks from entering the VLM prompt—passing only the pre-serialized numeric `claims` and `limitations` strings. Ensured the plain-language response never drops technical limitations.
+- **Chunk 9.3 (Verifier):** Added `verify_answer` in `verifier.py` to fact-check the VLM's generated answer text. Used regex to extract numeric measurements and UUIDs, comparing them strictly (with a narrow 5% tolerance) against the official `evidence.claims`. Included a `get_conservative_fallback` mechanism to override the VLM with a strict templated dump of the evidence array whenever hallucinations (unbacked numbers/IDs) are detected.
+
 ---
 
 ## Architectural Decisions

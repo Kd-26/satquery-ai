@@ -60,3 +60,20 @@ def verify_answer(answer_text: str, evidence: EvidencePackage) -> VerificationRe
         flagged_claims=flagged_claims,
         notes=notes
     )
+
+def get_conservative_fallback(evidence: EvidencePackage) -> str:
+    """
+    Returns a strict, templated answer based only on the exact evidence.
+    Call this when verify_answer() fails (passed=False).
+    """
+    lines = ["Verification failed. Generating conservative fallback based strictly on raw evidence:"]
+    
+    for c in evidence.claims:
+        lines.append(f"- {c.claim}: {c.measurement} (Region: {c.region_id})")
+        
+    if evidence.limitations:
+        lines.append("\nLimitations:")
+        for L in evidence.limitations:
+            lines.append(f"- {L}")
+            
+    return "\n".join(lines)
