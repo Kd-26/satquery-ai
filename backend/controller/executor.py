@@ -180,7 +180,32 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
     measurements_out = {}
     tool_outputs = {}
     
-    # We will populate these in subsequent commits
+    profile_t1 = resolve_metadata(image_t1)
+    profile_t2 = resolve_metadata(image_t2)
+    
+    rt1 = read_bands(str(list(Path(f"./artifacts/{image_t1}").glob("original.*"))[0]))
+    rt2 = read_bands(str(list(Path(f"./artifacts/{image_t2}").glob("original.*"))[0]))
+    
+    vm_t1 = compute_valid_mask(rt1, nodata_value=profile_t1.nodata_value)
+    vm_t2 = compute_valid_mask(rt2, nodata_value=profile_t2.nodata_value)
+    shared_valid_mask = vm_t1 & vm_t2
+    
+    from backend.scientific_tools.compare import compare_dates
+    
+    for cls in plan.target_classes:
+        mask_t1 = None
+        mask_t2 = None
+        for key in res_t1["masks"]:
+            if key.endswith(f"_{cls}"):
+                mask_t1 = res_t1["masks"][key]
+                mask_t2 = res_t2["masks"][key]
+                break
+                
+        if mask_t1 is not None and mask_t2 is not None:
+            comp = compare_dates(mask_t1, mask_t2, shared_valid_mask)
+            masks_out[f"gain_{cls}"] = comp["gain"]
+            masks_out[f"loss_{cls}"] = comp["loss"]
+            masks_out[f"net_change_{cls}"] = comp["net_change"]
     
     return {
         "masks": masks_out,
