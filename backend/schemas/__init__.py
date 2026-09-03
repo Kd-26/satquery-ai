@@ -10,5 +10,7 @@ __all__ = [
     "ExecutionPlan",
     "EvidencePackage",
     "Claim",
-    "SARRaster"
+    "SARRaster", "ValidationResult"
 ]
+
+from .validation_result import ValidationResult
