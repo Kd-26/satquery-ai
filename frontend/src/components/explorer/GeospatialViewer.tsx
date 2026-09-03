@@ -17,6 +17,8 @@ export function GeospatialViewer({ runId, baseImageUrl, masks }: GeospatialViewe
   // usage in the browser regardless of artifact size.
   
   const [opacities, setOpacities] = useState<Record<string, number>>({});
+  const [viewMode, setViewMode] = useState<'standard' | 'swipe' | 'split'>('standard');
+  const [swipePosition, setSwipePosition] = useState<number>(50);
   
   const handleOpacityChange = (maskId: string, value: number) => {
     setOpacities(prev => ({ ...prev, [maskId]: value }));
@@ -24,8 +26,20 @@ export function GeospatialViewer({ runId, baseImageUrl, masks }: GeospatialViewe
 
   return (
     <div className="relative w-full h-full bg-surface-secondary border border-border-primary rounded flex flex-col">
-      <div className="absolute top-4 left-4 z-10 bg-surface-primary p-4 rounded shadow-md w-64 text-text-primary">
-        <h3 className="font-semibold mb-2">Layers</h3>
+      <div className="absolute top-4 left-4 z-10 flex flex-col gap-4">
+        <div className="bg-surface-primary p-4 rounded shadow-md w-64 text-text-primary">
+          <h3 className="font-semibold mb-2">View Mode</h3>
+          <select 
+            className="w-full bg-surface-secondary border border-border-primary rounded p-1 text-sm text-text-primary mb-4"
+            value={viewMode}
+            onChange={(e) => setViewMode(e.target.value as any)}
+          >
+            <option value="standard">Standard Overlay</option>
+            <option value="swipe">Bi-Temporal Swipe</option>
+            <option value="split">Cross-Modal Split</option>
+          </select>
+          
+          <h3 className="font-semibold mb-2">Layers</h3>
         {masks.map(mask => (
           <div key={mask.id} className="mb-4 last:mb-0">
             <div className="flex justify-between items-center mb-1">
@@ -41,14 +55,37 @@ export function GeospatialViewer({ runId, baseImageUrl, masks }: GeospatialViewe
               value={opacities[mask.id] ?? 80} 
               onChange={(val) => handleOpacityChange(mask.id, val)}
             />
-          </div>
         ))}
+        </div>
       </div>
       
       {/* MapLibre Container Mock */}
-      <div className="flex-1 w-full h-full bg-gray-800 flex items-center justify-center">
+      <div className="flex-1 w-full h-full bg-gray-800 flex relative overflow-hidden items-center justify-center">
+        {viewMode === 'swipe' && (
+          <div 
+            className="absolute top-0 bottom-0 z-20 w-1 bg-brand-primary cursor-col-resize"
+            style={{ left: `${swipePosition}%` }}
+            onMouseDown={(e) => {
+              const handleMouseMove = (moveEvent: MouseEvent) => {
+                const newPos = (moveEvent.clientX / window.innerWidth) * 100;
+                setSwipePosition(Math.max(0, Math.min(100, newPos)));
+              };
+              const handleMouseUp = () => {
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+              };
+              document.addEventListener('mousemove', handleMouseMove);
+              document.addEventListener('mouseup', handleMouseUp);
+            }}
+          >
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center text-white shadow-lg">
+              <span className="text-xs tracking-tighter">||</span>
+            </div>
+          </div>
+        )}
+        
         <div className="text-center">
-          <p className="text-text-secondary">MapLibre GL Canvas</p>
+          <p className="text-text-secondary">MapLibre GL Canvas ({viewMode} mode)</p>
           <p className="text-xs text-text-secondary mt-1">Base: TiTiler {baseImageUrl}</p>
         </div>
       </div>
