@@ -1,5 +1,9 @@
 "use client";
 import React, { useState } from 'react';
+import { Panel } from './ui/Panel';
+import { Tabs } from './ui/Tabs';
+import { Badge } from './ui/Badge';
+import { DataReadout } from './ui/DataReadout';
 
 export interface Claim {
  claim: string;
@@ -33,24 +37,11 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({ runResult }) => {
  ];
 
  return (
- <div className="p-4 border border-subtle rounded-lg bg-panel mt-4">
+ <Panel className="mt-4">
  <div className="flex justify-between items-center mb-4 border-b pb-2">
  <h3 className="text-lg font-semibold text-text-primary">Analysis Results</h3>
- <div className="flex gap-1 text-sm bg-panel-raised p-1 rounded-md">
- <button 
- className={`px-3 py-1 rounded-md transition-colors ${viewMode === 'plain' ? 'bg-panel text-accent font-medium' : 'text-text-secondary hover:text-text-primary'}`}
- onClick={() => setViewMode('plain')}
- >
- Plain Language
- </button>
- <button 
- className={`px-3 py-1 rounded-md transition-colors ${viewMode === 'technical' ? 'bg-panel text-accent font-medium' : 'text-text-secondary hover:text-text-primary'}`}
- onClick={() => setViewMode('technical')}
- >
- Technical
- </button>
- </div>
- </div>
+ <Tabs tabs={["plain", "technical"]} activeTab={viewMode} onChange={(t) => setViewMode(t as any)} />
+</div>
 
  <div className="mb-6">
  <p className="whitespace-pre-wrap text-text-primary leading-relaxed text-sm">
@@ -75,9 +66,9 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({ runResult }) => {
  {claims.map((claim: Claim, idx: number) => (
  <tr key={idx} className="hover:bg-primary">
  <td className="px-4 py-2 text-text-primary">{claim.claim}</td>
- <td className="px-4 py-2 font-mono text-text-secondary text-right">{claim.measurement}</td>
+ <td className="px-4 py-2 text-right"><DataReadout label="" value={claim.measurement} /></td>
  <td className="px-4 py-2 font-mono text-text-secondary text-xs">{claim.region_id}</td>
- <td className="px-4 py-2 font-mono text-text-secondary text-right">{(claim.confidence * 100).toFixed(1)}%</td>
+ <td className="px-4 py-2 text-right"><DataReadout label="" value={(claim.confidence * 100).toFixed(1)} unit="%" /></td>
  </tr>
  ))}
  </tbody>

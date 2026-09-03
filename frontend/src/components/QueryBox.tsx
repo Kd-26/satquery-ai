@@ -1,5 +1,7 @@
 "use client";
 import React, { useState } from 'react';
+import { Panel } from './ui/Panel';
+import { Button } from './ui/Button';
 
 const REPRESENTATIVE_QUERIES = [
 "Find all water bodies in this image.",
@@ -26,7 +28,7 @@ export const QueryBox: React.FC<QueryBoxProps> = ({ imageIds, onSubmit, isLoadin
  };
 
  return (
- <div className="p-4 border rounded-lg bg-panel mb-4">
+ <Panel className="mb-4">
  <h2 className="text-lg font-semibold mb-4">2. Enter Query</h2>
  
  <form onSubmit={handleSubmit}>
@@ -61,13 +63,9 @@ export const QueryBox: React.FC<QueryBoxProps> = ({ imageIds, onSubmit, isLoadin
  />
  </div>
  
- <button 
- type="submit" 
- disabled={isLoading || !query.trim() || imageIds.length === 0}
- className="w-full bg-accent text-primary text-primary font-semibold py-2 px-4 rounded-md hover:opacity-90 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
- >
+ <Button type="submit" variant="primary" disabled={isLoading || !query.trim() || imageIds.length === 0} className="w-full mt-4">
  {isLoading ? 'Running Analysis...' : 'Run Query'}
- </button>
+ </Button>
  
  {imageIds.length === 0 && (
  <p className="text-xs text-warning mt-2">

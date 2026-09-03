@@ -1,5 +1,7 @@
 "use client";
 import React, { useState } from 'react';
+import { Panel } from './ui/Panel';
+import { Badge } from './ui/Badge';
 
 export interface TraceStep {
  step_name: string;
@@ -23,7 +25,7 @@ export const TracePanel: React.FC<TracePanelProps> = ({ traces }) => {
  ];
 
  return (
- <div className="border border-subtle rounded-lg bg-panel mt-4 overflow-hidden">
+ <Panel className="mt-4 p-0 overflow-hidden">
  <button 
  onClick={() => setIsOpen(!isOpen)}
  className="w-full flex justify-between items-center p-4 bg-primary hover:bg-panel-raised transition-colors text-left focus:outline-none"
@@ -52,9 +54,7 @@ export const TracePanel: React.FC<TracePanelProps> = ({ traces }) => {
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs mt-2">
  <div>
  <span className="text-text-secondary block mb-1 uppercase tracking-wider text-[10px]">Component</span>
- <span className="font-mono text-purple-700 bg-purple-50 border border-purple-100 px-1.5 py-0.5 rounded">
- {trace.model_or_tool}
- </span>
+ <Badge variant="default">{trace.model_or_tool}</Badge>
  </div>
  <div>
  <span className="text-text-secondary block mb-1 uppercase tracking-wider text-[10px]">Parameters</span>

@@ -1,5 +1,7 @@
 "use client";
 import React, { useState } from 'react';
+import { Panel } from './ui/Panel';
+import { Button } from './ui/Button';
 
 export interface UploadPanelProps {
  onUploadComplete: (imageIds: string[]) => void;
@@ -64,7 +66,7 @@ export const UploadPanel: React.FC<UploadPanelProps> = ({ onUploadComplete }) =>
  };
 
  return (
- <div className="p-4 border rounded-lg bg-panel mb-4">
+ <Panel className="mb-4">
  <h2 className="text-lg font-semibold mb-4">1. Upload Imagery</h2>
  
  <div className="flex gap-4 mb-4">
