@@ -29,3 +29,4 @@
   - An **Overlay Opacity** slider to fade the AI's predictions in and out over the raw imagery.
   - A **Before/After slider** for temporal workflows (T1 vs T2 comparison).
   - A **Cross-Modal view toggle** allowing users to switch between Optical-only, SAR-only, and Fused views.
+- **Chunk 10.3 (Evidence, Trace, Export):** Implemented EvidencePanel.tsx with a Plain/Technical language toggle, TracePanel.tsx to view the step-by-step machine execution trace, and ReportExport.tsx to trigger PDF downloads of the run results. Styled with strict monospace fonts for mathematical outputs.
