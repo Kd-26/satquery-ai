@@ -7,7 +7,8 @@ export interface MapViewerProps {
 }
 
 export const MapViewer: React.FC<MapViewerProps> = ({ imageIds, runResult }) => {
-    const [opacity, setOpacity] = useState<number>(0.5);
+        const [opacity, setOpacity] = useState<number>(0.5);
+    const [sliderPos, setSliderPos] = useState<number>(50);
 
     const hasOverlays = runResult && (runResult.masks_ref || runResult.overlays_ref || runResult.status === 'done');
 
@@ -17,6 +18,18 @@ export const MapViewer: React.FC<MapViewerProps> = ({ imageIds, runResult }) => 
             <div className="absolute top-4 left-4 right-4 z-10 flex justify-between bg-white/90 p-2 rounded shadow backdrop-blur-sm">
                 <div className="flex items-center gap-4">
                     <span className="font-semibold text-sm">Map Layers</span>
+                    {imageIds.length === 2 && (
+                        <div className="flex items-center gap-2 text-sm border-l pl-4 ml-2">
+                            <span>Before/After</span>
+                            <input 
+                                type="range" 
+                                min="0" max="100" 
+                                value={sliderPos} 
+                                onChange={(e) => setSliderPos(parseInt(e.target.value))} 
+                                className="w-24"
+                            />
+                        </div>
+                    )}
                     {hasOverlays && (
                         <label className="flex items-center gap-2 text-sm">
                             Overlay Opacity
@@ -38,7 +51,19 @@ export const MapViewer: React.FC<MapViewerProps> = ({ imageIds, runResult }) => 
                 ) : (
                     <div className="relative w-full h-full flex items-center justify-center">
                         <div className="w-3/4 h-3/4 border-4 border-dashed border-gray-400 flex items-center justify-center bg-gray-300 relative">
-                            <span className="text-gray-600 font-medium z-0">Base Image Render (ID: {imageIds[0]})</span>
+                                                        {imageIds.length === 2 ? (
+                                <>
+                                    <div className="absolute inset-0 bg-gray-300 flex items-center justify-start pl-4 overflow-hidden" style={{ width: \\%\ }}>
+                                        <span className="text-gray-600 font-medium z-0 whitespace-nowrap">T1 Image ({imageIds[0]})</span>
+                                    </div>
+                                    <div className="absolute inset-0 bg-gray-400 flex items-center justify-end pr-4 overflow-hidden" style={{ left: \\%\, width: \\%\ }}>
+                                        <span className="text-gray-800 font-medium z-0 whitespace-nowrap">T2 Image ({imageIds[1]})</span>
+                                    </div>
+                                    <div className="absolute top-0 bottom-0 w-1 bg-white cursor-ew-resize z-20 shadow" style={{ left: \\%\ }} />
+                                </>
+                            ) : (
+                                <span className="text-gray-600 font-medium z-0">Base Image Render (ID: {imageIds[0]})</span>
+                            )}
                             
                             {/* Overlay Mock */}
                             {hasOverlays && (
