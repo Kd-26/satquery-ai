@@ -55,8 +55,48 @@ def prepare_model_input(image_id: str, model_id: str) -> dict:
         if tensor.shape[0] == 3:
             tensor = (tensor - mean) / std
             
+    # Tiling
+    tile_transforms = []
+    min_res = contract.get("min_resolution_px")
+    if min_res and (tensor.shape[1] > min_res[0] or tensor.shape[2] > min_res[1]):
+        tile_h, tile_w = min_res
+        tiles = []
+        for y in range(0, tensor.shape[1], tile_h):
+            for x in range(0, tensor.shape[2], tile_w):
+                y_end = min(y + tile_h, tensor.shape[1])
+                x_end = min(x + tile_w, tensor.shape[2])
+                
+                tile = tensor[:, y:y_end, x:x_end]
+                
+                pad_h = tile_h - tile.shape[1]
+                pad_w = tile_w - tile.shape[2]
+                if pad_h > 0 or pad_w > 0:
+                    tile = np.pad(tile, ((0, 0), (0, pad_h), (0, pad_w)), mode='constant')
+                    
+                tiles.append(tile)
+                tile_transforms.append({
+                    "y_offset": y,
+                    "x_offset": x,
+                    "orig_h": y_end - y,
+                    "orig_w": x_end - x,
+                    "pad_h": pad_h,
+                    "pad_w": pad_w
+                })
+        tensor = np.stack(tiles)
+    else:
+        # Add batch dimension
+        tensor = np.expand_dims(tensor, axis=0)
+        tile_transforms.append({
+            "y_offset": 0,
+            "x_offset": 0,
+            "orig_h": tensor.shape[2], # axis 2 is height because of batch dim
+            "orig_w": tensor.shape[3], # axis 3 is width
+            "pad_h": 0,
+            "pad_w": 0
+        })
+            
     return {
         "tensor_or_path": tensor,
-        "tile_transforms": [],
+        "tile_transforms": tile_transforms,
         "band_order_used": band_order_used
     }
