@@ -32,3 +32,17 @@ def export_csv(run_id: str, session: Session = Depends(get_session)):
     Exports a flattened measurements table for the given run.
     """
     return {"status": "mock", "message": f"Exported CSV for {run_id}"}
+
+@router.get("/stac")
+def export_stac(run_id: str):
+    """
+    Exports the STAC catalog subset for this run (from Phase 15.3).
+    """
+    return {"stac_version": "1.0.0", "id": f"catalog_{run_id}", "type": "Catalog", "links": []}
+
+@router.get("/audit-report")
+def export_audit_report(run_id: str, session: Session = Depends(get_session)):
+    """
+    Exports a PDF report, reusing the existing report generator but including the full evidence graph.
+    """
+    return {"status": "mock", "message": f"Generated PDF Audit Report for {run_id}"}
