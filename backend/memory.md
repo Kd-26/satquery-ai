@@ -32,6 +32,13 @@
   - Uses `raster_io.read_bands` to load rasters, reordering them to match the exact contract required by the target model.
   - Slices image into non-overlapping tiles if the array dimensions exceed the `min_resolution_px` bounds, recording bounding offsets (`tile_transforms`) for post-processing assembly.
   - Enforces strict validation: Raises `IncompatibleInputError` if a requested band (e.g. `VV`, `NIR`) is missing from the underlying `InputProfile`.
+- **Chunk 6.3:** Implemented `run_single_image_workflow()` in `backend/controller/executor.py`:
+  - Dispatches to `prepare_model_input` for all required models.
+  - Stubs HTTP inference calls to remote model services (using mock for now).
+  - Reconstructs original raster space by stitching individual tile outputs according to their saved transforms.
+  - Generates a holistic valid-pixel mask using `quality.compute_valid_mask()` and applies it across all stitched model outputs (scores set to 0.0, masks bitwise-ANDed).
+  - Executes `optional_tools` (like `compute_spectral_index:NDWI`) via `scientific_tools`, injecting physical properties dynamically.
+  - Emits extensive trace telemetry mapping to the `execution_traces` DB schema.
 
 ---
 

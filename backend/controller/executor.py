@@ -109,6 +109,48 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
             masks_out[f"{model_id}_{cls}"] = stitched_mask
             scores_out[f"{model_id}_{cls}"] = stitched_score
             
+    # Process optional tools
+    for tool_call in plan.optional_tools:
+        if tool_call.startswith("compute_spectral_index:"):
+            index_name = tool_call.split(":")[1].upper()
+            start_t = time.time()
+            
+            try:
+                if index_name == "NDWI":
+                    green_idx = profile.band_identities.index("G")
+                    nir_idx = profile.band_identities.index("NIR")
+                    
+                    from backend.scientific_tools.indices import compute_ndwi
+                    result = compute_ndwi(raw_raster[green_idx], raw_raster[nir_idx])
+                    
+                elif index_name == "NDVI":
+                    red_idx = profile.band_identities.index("R")
+                    nir_idx = profile.band_identities.index("NIR")
+                    
+                    from backend.scientific_tools.indices import compute_ndvi
+                    result = compute_ndvi(raw_raster[nir_idx], raw_raster[red_idx])
+                else:
+                    raise ValueError(f"Unsupported spectral index: {index_name}")
+                    
+                result[~valid_mask] = np.nan
+                tool_outputs[index_name] = result
+                
+                dur = time.time() - start_t
+                traces.append({
+                    "step": "tool_execution",
+                    "tool": tool_call,
+                    "duration_s": dur,
+                    "status": "success"
+                })
+            except ValueError as e:
+                traces.append({
+                    "step": "tool_execution",
+                    "tool": tool_call,
+                    "duration_s": time.time() - start_t,
+                    "status": "failed",
+                    "reason": str(e)
+                })
+            
     return {
         "masks": masks_out,
         "scores": scores_out,
