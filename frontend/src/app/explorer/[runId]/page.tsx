@@ -2,10 +2,13 @@
 import React from 'react';
 import { useParams } from 'next/navigation';
 import { Panel } from '../../../components/ui/Panel';
+import { useExplorerStore } from '../../../state/explorerStore';
 
 export default function EvidenceExplorerPage() {
     const params = useParams();
     const runId = params.runId as string;
+    const selectedRegionId = useExplorerStore(state => state.selectedRegionId);
+    const setSelectedRegionId = useExplorerStore(state => state.setSelectedRegionId);
 
     return (
         <main className="min-h-screen p-8 flex flex-col h-screen">
@@ -26,7 +29,11 @@ export default function EvidenceExplorerPage() {
                 
                 <div className="col-span-4 h-full flex flex-col gap-4 overflow-hidden">
                     <Panel className="flex-1 flex items-center justify-center bg-panel-raised">
-                        <span className="text-text-secondary text-lg">Panel B: Analysis (Chunk 17.1)</span>
+                        <span className="text-text-secondary text-lg">Panel B: Analysis (Chunk 17.1)
+                        <div className="mt-4 text-sm text-text-primary">
+                            <p>Selected Region: <span className="font-mono text-accent">{selectedRegionId || 'None'}</span></p>
+                            <button className="text-accent hover:underline mt-2" onClick={() => setSelectedRegionId('reg_123')}>Test Select Region</button>
+                        </div></span>
                     </Panel>
                     
                     <Panel className="flex-1 flex items-center justify-center bg-panel-raised">
