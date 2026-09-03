@@ -19,6 +19,8 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
         if not entry.calibrated_confidence:
             limitations.append(f"Model {model_id} has uncalibrated confidence; raw scores are omitted or approximate.")
             
+    limitations.extend(validation.restrictions)
+            
     import os
     import rasterio
     from pathlib import Path
