@@ -232,3 +232,57 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
         "tool_outputs": tool_outputs,
         "traces": res_t1["traces"] + res_t2["traces"]
     }
+
+def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> Dict[str, Any]:
+    if not validation.approved:
+        raise ExecutorError("Cannot run workflow: Validation rejected the plan.")
+        
+    if len(plan.images) < 2:
+        raise ExecutorError("Cross-modal workflow requires at least 2 images.")
+        
+    p0 = resolve_metadata(plan.images[0])
+    
+    if p0.sensor_family in ['sentinel-1', 'risat']:
+        image_sar = plan.images[0]
+        image_opt = plan.images[1]
+    else:
+        image_opt = plan.images[0]
+        image_sar = plan.images[1]
+        
+    model_opt = None
+    model_sar = None
+    for mid in plan.required_models:
+        entry = get_by_id(mid)
+        if entry.modality in ["optical", "optical_rgb"]:
+            model_opt = entry
+        elif entry.modality == "sar":
+            model_sar = entry
+            
+    if not model_opt or not model_sar:
+        raise ExecutorError("Cross-modal workflow requires one optical and one SAR model.")
+        
+    shared_classes = list(set(model_opt.classes) & set(model_sar.classes))
+    target_classes = [c for c in plan.target_classes if c in shared_classes]
+    
+    dropped_classes = set(plan.target_classes) - set(target_classes)
+    if dropped_classes:
+        validation.restrictions.append(f"Dropped classes not supported by both models: {', '.join(dropped_classes)}")
+        
+    plan_opt = plan.model_copy(update={"images": [image_opt], "required_models": [model_opt.id], "target_classes": target_classes})
+    plan_sar = plan.model_copy(update={"images": [image_sar], "required_models": [model_sar.id], "target_classes": target_classes})
+    
+    res_opt = run_single_image_workflow(plan_opt, validation)
+    res_sar = run_single_image_workflow(plan_sar, validation)
+    
+    masks_out = {}
+    scores_out = {}
+    measurements_out = {}
+    tool_outputs = {}
+    
+    return {
+        "masks": masks_out,
+        "scores": scores_out,
+        "measurements": measurements_out,
+        "tool_outputs": tool_outputs,
+        "traces": res_opt["traces"] + res_sar["traces"]
+    }
