@@ -56,9 +56,11 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
                     
             if profile.sensor_family == "unknown":
                 restrictions.append(f"Sensor family unverified for {profile.image_id} - domain-shift risk cannot be assessed.")
-            elif model.known_domain_shift_sensors and profile.sensor_family in model.known_domain_shift_sensors:
-                restrictions.append(f"Model {model_id} sensor domain-shift risk: running on {profile.sensor_family}.")
-                confidence_caps[model_id] = 0.5
+            elif model.known_domain_shift_sensors:
+                known_sensors_lower = [s.lower() for s in model.known_domain_shift_sensors]
+                if profile.sensor_family.lower() in known_sensors_lower:
+                    restrictions.append(f"Model {model_id} sensor domain-shift risk: running on {profile.sensor_family}.")
+                    confidence_caps[model_id] = 0.5
 
     # Check (3): area_estimate restriction logic
     if "area_estimate" in plan.requested_outputs:

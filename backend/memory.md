@@ -1,6 +1,6 @@
 # SatQuery AI Backend - Memory
 
-## Work Completed (Up to Chunk 5.1)
+## Work Completed (Up to Chunk 5.2)
 
 ### Phase 0 - Scaffolding
 - Built the lightweight FastAPI backend (`main.py`, `.env.example`, `requirements.txt`).
@@ -8,7 +8,7 @@
 
 ### Phase 1 - Data Contracts & Registry Foundation
 - **Chunk 1.1:** Created strict Pydantic schemas in `backend/schemas/` (`InputProfile`, `RegistryEntry`, `ExecutionPlan`, `EvidencePackage`, `SARRaster`). These lock down physical realities—for example, wrapping SAR data to enforce `'dB'` vs `'linear'` representation.
-- **Chunk 1.2:** Created YAML manifests in `backend/registry/` for models, adapters, and tools. Added `registry_loader.py` to parse and validate these manifests at startup using Pydantic. Any invalid YAML will crash the server on boot.
+- **Chunk 1.2:** Created YAML manifests in `backend/registry/` for models, adapters, and tools. Added `registry_loader.py` to parse and validate these manifests at startup using Pydantic. Any invalid YAML will crash the server on boot. Updated `RegistryEntry` schema to support `Union[str, List[str]]` for `trained_on` and `Union[str, Dict[str, Any]]` for `eval_summary`.
 - **Chunk 1.3:** Setup the PostgreSQL database using `SQLModel` and `asyncpg` (`backend/db/models.py` and `backend/db/session.py`).
 
 ### Phase 2 - Ingestion & Scientific Tools
@@ -19,6 +19,12 @@
 
 ### Phase 5 - Planner & Validator
 - **Chunk 5.1:** Implemented the VLM Planner prompt builder in `backend/controller/planner.py`. It dynamically summarizes the tool registry and profiles. Implemented the JSON-schema guided execution plan extraction with a one-time automatic retry mechanism for malformed JSON.
+- **Chunk 5.2:** Implemented `validate_plan(plan, profiles) -> ValidationResult` in `backend/controller/validator.py`:
+  - **Check 1 (Model & Band Match):** Verifies required models exist in registry and required bands match the profile's `band_identities`.
+  - **Check 2 (Temporal Workflow Alignment):** Calls `check_pair_compatibility` for temporal workflows and rejects incompatible CRS/bboxes.
+  - **Check 3 (Area Restriction Degradation):** Degrades gracefully if `area_estimate` is requested on an uncalibrated raster (adds restriction note rather than rejecting whole plan).
+  - **Check 4 (Adapter Validation):** Verifies `final_adapter` exists in the registry.
+  - **Check 5 (Resolution & Sensor Domain Shift):** Enforces $>5\times$ resolution mismatch as a hard rejection (`approved = False`). Caps confidence at 0.5 for minor resolution shifts or known domain-shift sensors (e.g. Cartosat-2S on RGB models, case-insensitive). Warns on unverified sensors.
 
 ---
 
@@ -27,12 +33,12 @@
 2. **Type-Level Physics:** Physical realities (like SAR representation being dB or linear) are enforced at the type level (`SARRaster`), not via heuristics.
 3. **Registry-Driven Execution:** AI planners do not guess what tools exist. The capabilities are strictly defined in `backend/registry/` YAML files and dynamically injected into the VLM prompt.
 4. **Incremental Commits:** Code is committed incrementally (file-by-file or function-by-function) to keep Git history clean, atomic, and revertible.
+5. **Strict Plan Validation:** VLM-generated plans are not trusted blindly; they are validated against physical resolution limits and sensor contracts before any executor step runs.
 
 ---
 
 ## Hand-off for the ML Team
 The ML team is responsible for the actual deep learning components and deploying them as separate microservices.
-Specifically (so far):
+Specifically:
 1. **VLM Service Endpoint:** In Chunk 5.1, we stubbed `model_services.vlm_service.inference`. The ML team needs to implement the actual `generate(prompt, images, adapter)` function that calls the vision-language model.
 2. **Microservices for Models:** The YAML files in `backend/registry/models/` map to endpoints (e.g., `http://seg-rgb-service:8001/infer`). The ML team must build and deploy these models to those ports. The backend expects them to honor the `input_contract` defined in their respective YAML files.
-- **Chunk 5.2:** Created ackend/controller/validator.py with alidate_plan() to strictly enforce model compatibility. It checks that models exist, bands match, applies the domain-shift logic from registry files, limits confidence if the resolution is slightly mismatched, and outright rejects the plan if the resolution gap is too large (> 5x).
