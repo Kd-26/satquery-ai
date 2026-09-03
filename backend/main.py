@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     app_name: str = "SatQuery AI"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/satquery"
     
     class Config:
         env_file = ".env"
