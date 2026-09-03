@@ -46,3 +46,19 @@ def export_audit_report(run_id: str, session: Session = Depends(get_session)):
     Exports a PDF report, reusing the existing report generator but including the full evidence graph.
     """
     return {"status": "mock", "message": f"Generated PDF Audit Report for {run_id}"}
+
+from backend.controller.notebook_export import generate_notebook
+
+@router.get("/notebook")
+def export_notebook(run_id: str):
+    """
+    Generates and returns the reproducible Jupyter Notebook (.ipynb) for the run.
+    """
+    try:
+        nb_path = generate_notebook(run_id)
+        if os.path.exists(nb_path):
+            return FileResponse(nb_path, media_type="application/x-ipynb+json", filename=f"{run_id}_reproducible.ipynb")
+        else:
+            raise HTTPException(status_code=404, detail="Notebook generation failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
