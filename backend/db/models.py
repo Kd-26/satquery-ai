@@ -57,3 +57,45 @@ class Region(SQLModel, table=True):
     geometry: Any = Field(sa_column=Column(Geometry('POLYGON', srid=4326)))
     class_label: str
     source_mask_ref: str
+
+from enum import Enum
+from typing import Optional
+
+class NodeType(str, Enum):
+    claim = "claim"
+    measurement = "measurement"
+    region = "region"
+    mask = "mask"
+    model = "model"
+    input = "input"
+
+class EvidenceNode(SQLModel, table=True):
+    __tablename__ = "evidence_nodes"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    run_id: str = Field(index=True)
+    node_type: NodeType
+    content_json: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
+    parent_node_id: Optional[uuid.UUID] = Field(default=None, foreign_key="evidence_nodes.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class Experiment(SQLModel, table=True):
+    __tablename__ = "experiments"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    parent_run_id: str = Field(index=True) # or foreign key if run is stored
+    parameter_overrides_json: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
+    rerun_stage_from: str
+    status: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class FeedbackTagEnum(str, Enum):
+    accepted = "accepted"
+    rejected = "rejected"
+    needs_review = "needs_review"
+
+class FeedbackTag(SQLModel, table=True):
+    __tablename__ = "feedback_tags"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    evidence_node_id: uuid.UUID = Field(foreign_key="evidence_nodes.id")
+    tag: FeedbackTagEnum
+    reviewer_note: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
