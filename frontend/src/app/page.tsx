@@ -2,6 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { UploadPanel } from '../components/UploadPanel';
 import { QueryBox } from '../components/QueryBox';
+import { EvidencePanel } from '../components/EvidencePanel';
+import { TracePanel } from '../components/TracePanel';
+import { ReportExport } from '../components/ReportExport';
 import { MapViewer } from '../components/MapViewer';
 
 export default function HomePage() {
