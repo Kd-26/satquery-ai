@@ -32,3 +32,4 @@
 - **Chunk 10.3 (Evidence, Trace, Export):** Implemented EvidencePanel.tsx with a Plain/Technical language toggle, TracePanel.tsx to view the step-by-step machine execution trace, and ReportExport.tsx to trigger PDF downloads of the run results. Styled with strict monospace fonts for mathematical outputs.
 - **Chunk 13.1 (Design Tokens):** Overhauled 	ailwind.config.ts with the dark 'Mission Control' theme colors, mask class colors, and consistent transition/border tokens. Configured 
 ext/font/google to load 'Inter' (sans) and 'JetBrains Mono' (mono) globally in layout.tsx.
+- **Chunk 13.2 (UI Primitives):** Built shared components (Button, Panel, Tabs, Slider, Badge, and DataReadout) utilizing the new dark-mode design tokens, enforcing a consistent, mission-control aesthetic across the app.
