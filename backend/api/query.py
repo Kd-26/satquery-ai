@@ -50,11 +50,4 @@ async def get_run_graph(run_id: uuid.UUID):
     }
 
 
-@router.get("/runs/{run_id}/report")
-async def download_run_report(run_id: uuid.UUID):
-    """
-    Alias endpoint for downloading the PDF audit report (used by ReportExport component).
-    """
-    # Redirects or returns mock PDF bytes
-    # To keep it simple, we'll return a mock response that the frontend can handle
-    return {"status": "mock", "message": f"Generated PDF Audit Report for {run_id}"}
+

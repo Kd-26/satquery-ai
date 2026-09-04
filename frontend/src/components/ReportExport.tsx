@@ -11,8 +11,8 @@ export const ReportExport: React.FC<ReportExportProps> = ({ runId }) => {
 
  const handleDownload = async () => {
  setIsDownloading(true);
- try {
- const response = await fetch(`/api/v1/runs/${runId}/report`);
+    try {
+      const response = await fetch(`/api/v1/runs/${runId}/export/audit-report`);
  
  let blob: Blob;
  if (response.ok) {
