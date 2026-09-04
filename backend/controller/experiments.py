@@ -1,10 +1,10 @@
 import uuid
 from typing import Dict, Any
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from backend.db.models import Experiment
 from backend.schemas.execution_plan import ExecutionPlan
 
-def create_experiment(session: Session, parent_run_id: str, parameter_overrides: Dict[str, Any], parent_plan_dict: dict) -> str:
+async def create_experiment(session: AsyncSession, parent_run_id: str, parameter_overrides: Dict[str, Any], parent_plan_dict: dict) -> str:
     """
     Creates an experiment by overriding parameters of a parent run without mutating the original evidence.
     Determines the earliest affected stage so we don't rerun unnecessary upstream work.
@@ -52,6 +52,6 @@ def create_experiment(session: Session, parent_run_id: str, parameter_overrides:
         status="running"
     )
     session.add(exp_db)
-    session.commit()
+    await session.commit()
     
     return experiment_id

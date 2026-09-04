@@ -1,10 +1,12 @@
 import uuid
-from typing import Dict, List
-from sqlalchemy.orm import Session
+from typing import Dict, List, Any
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from collections import defaultdict
 from backend.schemas.evidence_package import EvidencePackage
 from backend.db.models import EvidenceNode, NodeType, Region
 
-def build_evidence_graph(session: Session, run_id: str, evidence: EvidencePackage) -> None:
+async def build_evidence_graph(session: AsyncSession, run_id: str, evidence: EvidencePackage) -> None:
     """
     Builds the full evidence graph for a given run and persists it to the database.
     Chain: claim -> measurement -> region -> mask -> model -> inputs
@@ -17,8 +19,8 @@ def build_evidence_graph(session: Session, run_id: str, evidence: EvidencePackag
             content_json={"claim_text": claim.claim, "confidence": claim.confidence}
         )
         session.add(claim_node)
-        session.flush() # flush to get id
-        
+        await session.flush()  # flush to get id
+
         # 2. Measurement Node
         meas_node = EvidenceNode(
             run_id=run_id,
@@ -27,8 +29,8 @@ def build_evidence_graph(session: Session, run_id: str, evidence: EvidencePackag
             parent_node_id=claim_node.id
         )
         session.add(meas_node)
-        session.flush()
-        
+        await session.flush()
+
         # 3. Region Node
         region_node = EvidenceNode(
             run_id=run_id,
@@ -37,24 +39,25 @@ def build_evidence_graph(session: Session, run_id: str, evidence: EvidencePackag
             parent_node_id=meas_node.id
         )
         session.add(region_node)
-        session.flush()
-        
-        # Upsert Region PostGIS row (mocking geometry creation from mask ref)
-        # Assuming we just create a placeholder polygon for now if we don't have the real geometry extraction
+        await session.flush()
+
+        # Upsert Region PostGIS row (placeholder polygon until real geometry extraction is wired)
         poly_geom = 'SRID=4326;POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))'
-        
-        # check if region exists
-        existing = session.query(Region).filter(Region.id == uuid.UUID(claim.region_id)).first()
+
+        result = await session.execute(
+            select(Region).where(Region.id == uuid.UUID(claim.region_id))
+        )
+        existing = result.scalar_one_or_none()
         if not existing:
             region_db = Region(
                 id=uuid.UUID(claim.region_id),
                 run_id=run_id,
                 geometry=poly_geom,
-                class_label=claim.claim.split(" ")[0], # heuristic
+                class_label=claim.claim.split(" ")[0],
                 source_mask_ref=evidence.masks_ref.get(claim.claim, "") if evidence.masks_ref else ""
             )
             session.add(region_db)
-        
+
         # 4. Mask Node
         mask_node = EvidenceNode(
             run_id=run_id,
@@ -63,10 +66,9 @@ def build_evidence_graph(session: Session, run_id: str, evidence: EvidencePackag
             parent_node_id=region_node.id
         )
         session.add(mask_node)
-        session.flush()
-        
+        await session.flush()
+
         # 5. Model Node(s)
-        # Assuming one model for simplicity, could link multiple
         for model_id, model_version in evidence.model_versions.items():
             model_node = EvidenceNode(
                 run_id=run_id,
@@ -75,8 +77,8 @@ def build_evidence_graph(session: Session, run_id: str, evidence: EvidencePackag
                 parent_node_id=mask_node.id
             )
             session.add(model_node)
-            session.flush()
-            
+            await session.flush()
+
             # 6. Input Node(s)
             for img in claim.source_images:
                 input_node = EvidenceNode(
@@ -86,21 +88,23 @@ def build_evidence_graph(session: Session, run_id: str, evidence: EvidencePackag
                     parent_node_id=model_node.id
                 )
                 session.add(input_node)
-                
-    session.commit()
 
-def get_evidence_graph(session: Session, run_id: str) -> Dict[str, Any]:
+    await session.commit()
+
+
+async def get_evidence_graph(session: AsyncSession, run_id: str) -> Dict[str, Any]:
     """
     Returns a nested JSON traversal of the graph for the frontend's useEvidenceGraph hook.
     """
-    nodes = session.query(EvidenceNode).filter(EvidenceNode.run_id == run_id).all()
-    
-    # Build an adjacency list: parent_id -> list of child nodes
-    from collections import defaultdict
-    children_map = defaultdict(list)
-    roots = []
-    
-    node_dicts = {}
+    result = await session.execute(
+        select(EvidenceNode).where(EvidenceNode.run_id == run_id)
+    )
+    nodes = result.scalars().all()
+
+    children_map: Dict[Any, list] = defaultdict(list)
+    roots: list = []
+    node_dicts: Dict[Any, dict] = {}
+
     for node in nodes:
         nd = {
             "id": str(node.id),
@@ -109,26 +113,29 @@ def get_evidence_graph(session: Session, run_id: str) -> Dict[str, Any]:
             "children": []
         }
         node_dicts[node.id] = nd
-        
+
     for node in nodes:
         if node.parent_node_id:
             children_map[node.parent_node_id].append(node_dicts[node.id])
         else:
             roots.append(node_dicts[node.id])
-            
-    # Link children
+
     for node_id, nd in node_dicts.items():
         nd["children"] = children_map.get(node_id, [])
-        
+
     return {"run_id": run_id, "evidence_graph": roots}
 
-def get_node_lineage(session: Session, node_id: str) -> List[Dict[str, Any]]:
+
+async def get_node_lineage(session: AsyncSession, node_id: str) -> List[Dict[str, Any]]:
     """
     Walks parent_node_id up to the root, for a single claim's full evidence chain.
     """
     lineage = []
-    current_node = session.query(EvidenceNode).filter(EvidenceNode.id == uuid.UUID(node_id)).first()
-    
+    result = await session.execute(
+        select(EvidenceNode).where(EvidenceNode.id == uuid.UUID(node_id))
+    )
+    current_node = result.scalar_one_or_none()
+
     while current_node:
         lineage.append({
             "id": str(current_node.id),
@@ -136,10 +143,12 @@ def get_node_lineage(session: Session, node_id: str) -> List[Dict[str, Any]]:
             "content": current_node.content_json
         })
         if current_node.parent_node_id:
-            current_node = session.query(EvidenceNode).filter(EvidenceNode.id == current_node.parent_node_id).first()
+            result = await session.execute(
+                select(EvidenceNode).where(EvidenceNode.id == current_node.parent_node_id)
+            )
+            current_node = result.scalar_one_or_none()
         else:
             current_node = None
-            
-    # Return from root to leaf, or leaf to root? Usually leaf to root is fine, but let's reverse to root->leaf
-    lineage.reverse()
+
+    lineage.reverse()  # return root -> leaf order
     return lineage

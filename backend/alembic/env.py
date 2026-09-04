@@ -20,9 +20,14 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# Add backend dir to path so we can import modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-load_dotenv()
+# env.py lives at backend/alembic/env.py
+# We need satquery-ai/ (the project root) on sys.path so 'from backend.db.models import *' resolves.
+# dirname(__file__)          → backend/alembic/
+# dirname(dirname(__file__)) → backend/
+# dirname(x3)                → satquery-ai/  ← this is what we want
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, project_root)
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 # Set up Alembic config to use environment's DATABASE_URL
 database_url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/satquery")
