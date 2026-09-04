@@ -21,43 +21,43 @@ export const UploadPanel: React.FC<UploadPanelProps> = ({ onUploadComplete }) =>
  try {
  const imageIds: string[] = [];
  
- for (let i = 0; i < files.length; i++) {
- const file = files[i];
- const formData = new FormData();
- formData.append('file', file);
- 
- const response = await fetch('/api/v1/images', {
- method: 'POST',
- body: formData,
- });
- 
- if (!response.ok) {
- // fallback logic if backend isn't up for pure UI testing
- const mockId = `mock-id-${Math.random().toString(36).substring(7)}`;
- imageIds.push(mockId);
- } else {
- const data = await response.json();
- imageIds.push(data.image_id);
- }
- }
- 
- if ((mode === 'cross-modal' || mode === 'bi-temporal') && imageIds.length === 2) {
- try {
- await fetch('/api/v1/pairs', {
- method: 'POST',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ 
- image_id_1: imageIds[0], 
- image_id_2: imageIds[1],
- relation: mode
- }),
- });
- } catch (e) {
- console.log('Pair api failed, continuing anyway');
- }
- }
- 
- onUploadComplete(imageIds);
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          const response = await fetch('/api/v1/images', {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || `Failed to upload ${file.name}`);
+          }
+          
+          const data = await response.json();
+          imageIds.push(data.image_id);
+        }
+        
+        if ((mode === 'cross-modal' || mode === 'bi-temporal') && imageIds.length === 2) {
+          const pairResponse = await fetch('/api/v1/pairs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              image_id_1: imageIds[0], 
+              image_id_2: imageIds[1],
+              relation: mode
+            }),
+          });
+
+          if (!pairResponse.ok) {
+            const errData = await pairResponse.json().catch(() => ({}));
+            throw new Error(errData.detail || 'Failed to link image pair');
+          }
+        }
+        
+        onUploadComplete(imageIds);
  } catch (err) {
  setError(err instanceof Error ? err.message : 'Upload failed');
  } finally {
