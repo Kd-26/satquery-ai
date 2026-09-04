@@ -49,12 +49,13 @@ export function GeospatialViewer({ runId, baseImageUrl, masks }: GeospatialViewe
               </div>
               <span className="text-xs text-text-secondary">{opacities[mask.id] ?? 80}%</span>
             </div>
-            <Slider 
-              min={0} 
-              max={100} 
-              value={opacities[mask.id] ?? 80} 
+            <Slider
+              min={0}
+              max={100}
+              value={opacities[mask.id] ?? 80}
               onChange={(val) => handleOpacityChange(mask.id, val)}
             />
+          </div>
         ))}
         </div>
       </div>
