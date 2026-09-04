@@ -12,7 +12,7 @@ router = APIRouter(tags=["experiments"])
 
 @router.post("/runs/{run_id}/experiments")
 async def api_create_experiment(
-    run_id: str,
+    run_id: uuid.UUID,
     parameter_overrides: Dict[str, Any] = Body(...),
     session: AsyncSession = Depends(get_session),
 ):
@@ -24,7 +24,7 @@ async def api_create_experiment(
         # Mocking fetching the parent plan — replace with real DB lookup when executor is wired
         parent_plan_dict = {"required_models": [], "images": [], "target_classes": []}
 
-        experiment_id = await create_experiment(session, run_id, parameter_overrides, parent_plan_dict)
+        experiment_id = await create_experiment(session, str(run_id), parameter_overrides, parent_plan_dict)
         return {"experiment_id": experiment_id, "status": "running"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -32,7 +32,7 @@ async def api_create_experiment(
 
 @router.get("/experiments/{experiment_id}")
 async def api_get_experiment(
-    experiment_id: str,
+    experiment_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -40,7 +40,7 @@ async def api_get_experiment(
     """
     try:
         result = await session.execute(
-            select(Experiment).where(Experiment.id == uuid.UUID(experiment_id))
+            select(Experiment).where(Experiment.id == experiment_id)
         )
         exp = result.scalar_one_or_none()
         if not exp:
@@ -72,7 +72,7 @@ class CorrectionRequest(BaseModel):
 
 @router.post("/experiments/{experiment_id}/corrections")
 async def api_save_correction(
-    experiment_id: str,
+    experiment_id: uuid.UUID,
     request: CorrectionRequest,
     session: AsyncSession = Depends(get_session),
 ):
@@ -81,7 +81,7 @@ async def api_save_correction(
     """
     try:
         result = await session.execute(
-            select(Experiment).where(Experiment.id == uuid.UUID(experiment_id))
+            select(Experiment).where(Experiment.id == experiment_id)
         )
         exp = result.scalar_one_or_none()
         if not exp:
@@ -103,7 +103,7 @@ async def api_save_correction(
                 manifest = json.load(f)
 
             correction_entry = {
-                "experiment_id": experiment_id,
+                "experiment_id": str(experiment_id),
                 "evidence_node_id": request.evidence_node_id,
                 "operation": request.operation,
                 "geometry": request.geometry_geojson,
