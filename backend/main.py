@@ -36,8 +36,10 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Routers — each mounted under /api/v1
 # ---------------------------------------------------------------------------
-from backend.api import experiments, exports, feedback, regions, titiler_service  # noqa: E402
+from backend.api import experiments, exports, feedback, regions, titiler_service, ingestion, query  # noqa: E402
 
+app.include_router(ingestion.router,            prefix="/api/v1")
+app.include_router(query.router,                prefix="/api/v1")
 app.include_router(experiments.router,          prefix="/api/v1")
 app.include_router(exports.router,              prefix="/api/v1")
 app.include_router(feedback.router,             prefix="/api/v1")
