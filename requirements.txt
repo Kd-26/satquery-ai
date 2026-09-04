@@ -3,9 +3,14 @@ uvicorn
 pydantic
 pydantic-settings
 sqlalchemy
+sqlmodel
+asyncpg
 psycopg2-binary
 rasterio
 python-multipart
-
 PyYAML
-sqlmodel\nasyncpg\n
+geoalchemy2
+httpx
+nbformat
+pystac
+numpy
