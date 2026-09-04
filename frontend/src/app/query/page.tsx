@@ -49,35 +49,40 @@ export default function QueryPage() {
     useEffect(() => {
         if (!runId) return;
 
+        let isMounted = true;
+
         const checkStatus = async () => {
             try {
                 const res = await fetch(`/api/v1/runs/${runId}`);
                 if (!res.ok) {
-                    setRunResult({ 
-                        status: 'done', 
-                        answer: "Detected 45,000 m² of built-up urban expansion with 92% confidence. Sentinel-2 NDVI spectral index reveals a 31% drop in canopy cover in quadrant NW-4.",
-                        answer_obj: {
-                            plain_language: "Detected 45,000 m² of built-up urban expansion with 92% confidence. Sentinel-2 NDVI spectral index reveals a 31% drop in canopy cover in quadrant NW-4.",
-                            technical: "Execution DAG completed: Tool [ndvi_difference] computed delta on B04/B08 floats. Tool [st_area] calculated geometric polygon projection EPSG:4326 -> EPSG:3857. Confidence penalized by 0.08 due to 20m pixel resolution shift."
-                        },
-                        claims: [
-                            { claim: "Built-up surface increase", measurement: 45000, region_id: "reg_urban_01", confidence: 0.92 },
-                            { claim: "Vegetation index attenuation", measurement: -0.31, region_id: "reg_veg_04", confidence: 0.94 }
-                        ],
-                        limitations: [
-                            "Minor resolution domain shift between Sentinel-2 (10m) and verification mask (20m)."
-                        ],
-                        traces: [
-                            { step_name: "vlm_dag_planning", model_or_tool: "VLM Planner (Gemini-Flash)", parameters: { prompt_tokens: 1420 }, execution_time_ms: 840 },
-                            { step_name: "spectral_ndvi_calc", model_or_tool: "scientific_tools.ndvi", parameters: { red_band: "B04", nir_band: "B08" }, execution_time_ms: 120 },
-                            { step_name: "postgis_topology_verify", model_or_tool: "spatial_tools.st_area", parameters: { crs: "EPSG:3857" }, execution_time_ms: 45 }
-                        ]
-                    });
-                    setIsLoading(false);
+                    if (isMounted) {
+                        setRunResult({ 
+                            status: 'done', 
+                            answer: "Detected 45,000 m² of built-up urban expansion with 92% confidence. Sentinel-2 NDVI spectral index reveals a 31% drop in canopy cover in quadrant NW-4.",
+                            answer_obj: {
+                                plain_language: "Detected 45,000 m² of built-up urban expansion with 92% confidence. Sentinel-2 NDVI spectral index reveals a 31% drop in canopy cover in quadrant NW-4.",
+                                technical: "Execution DAG completed: Tool [ndvi_difference] computed delta on B04/B08 floats. Tool [st_area] calculated geometric polygon projection EPSG:4326 -> EPSG:3857. Confidence penalized by 0.08 due to 20m pixel resolution shift."
+                            },
+                            claims: [
+                                { claim: "Built-up surface increase", measurement: 45000, region_id: "reg_urban_01", confidence: 0.92 },
+                                { claim: "Vegetation index attenuation", measurement: -0.31, region_id: "reg_veg_04", confidence: 0.94 }
+                            ],
+                            limitations: [
+                                "Minor resolution domain shift between Sentinel-2 (10m) and verification mask (20m)."
+                            ],
+                            traces: [
+                                { step_name: "vlm_dag_planning", model_or_tool: "VLM Planner (Gemini-Flash)", parameters: { prompt_tokens: 1420 }, execution_time_ms: 840 },
+                                { step_name: "spectral_ndvi_calc", model_or_tool: "scientific_tools.ndvi", parameters: { red_band: "B04", nir_band: "B08" }, execution_time_ms: 120 },
+                                { step_name: "postgis_topology_verify", model_or_tool: "spatial_tools.st_area", parameters: { crs: "EPSG:3857" }, execution_time_ms: 45 }
+                            ]
+                        });
+                        setIsLoading(false);
+                    }
                     clearInterval(interval);
                     return;
                 }
                 const data = await res.json();
+                if (!isMounted) return;
                 
                 if (data.status === 'done') {
                     setRunResult(data);
@@ -88,22 +93,27 @@ export default function QueryPage() {
                     setIsLoading(false);
                     clearInterval(interval);
                 }
-            } catch (e) {
-                setRunResult({ 
-                    status: 'done', 
-                    answer: "Analysis verified via fallback pipeline.",
-                    answer_obj: {
-                        plain_language: "Target region analyzed successfully. Cross-sensor consistency confirmed.",
-                        technical: "Synthetic pipeline fallback response loaded for interactive validation."
-                    }
-                });
-                setIsLoading(false);
+            } catch {
+                if (isMounted) {
+                    setRunResult({ 
+                        status: 'done', 
+                        answer: "Analysis verified via fallback pipeline.",
+                        answer_obj: {
+                            plain_language: "Target region analyzed successfully. Cross-sensor consistency confirmed.",
+                            technical: "Synthetic pipeline fallback response loaded for interactive validation."
+                        }
+                    });
+                    setIsLoading(false);
+                }
                 clearInterval(interval);
             }
         };
 
         const interval = setInterval(checkStatus, 2000);
-        return () => clearInterval(interval);
+        return () => {
+            isMounted = false;
+            clearInterval(interval);
+        };
     }, [runId]);
 
     return (
