@@ -1,0 +1,324 @@
+/**
+ * SatQuery AI — Typed API Client
+ * All backend calls go through this module.
+ * Base URL is read from NEXT_PUBLIC_API_BASE_URL (defaults to http://localhost:8000).
+ */
+
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+// ─── Generic fetch helper ────────────────────────────────────────────────────
+
+async function apiFetch<T>(
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json", ...init?.headers },
+    ...init,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`API ${res.status}: ${detail}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface UploadImageResponse {
+  status: string;
+  image_id: string;
+}
+
+export interface PairResponse {
+  status: string;
+  pair_id: string;
+}
+
+export interface QueryRequest {
+  query: string;
+  image_ids: string[];
+}
+
+export interface QueryResponse {
+  status: string;
+  run_id: string;
+}
+
+export interface Claim {
+  claim: string;
+  measurement: number;
+  region_id: string;
+  confidence: number;
+}
+
+export interface TraceStep {
+  step_name: string;
+  model_or_tool: string;
+  parameters: Record<string, unknown>;
+  execution_time_ms: number;
+}
+
+export interface AnswerObj {
+  plain_language: string;
+  technical: string;
+}
+
+export interface RunResult {
+  run_id: string;
+  status: "pending" | "running" | "done" | "failed";
+  progress: number;
+  answer?: string;
+  answer_obj?: AnswerObj;
+  claims?: Claim[];
+  limitations?: string[];
+  traces?: TraceStep[];
+}
+
+export interface GraphNode {
+  id: string;
+  type: string;
+  label: string;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  edges: { source: string; target: string }[];
+}
+
+export interface ExperimentResponse {
+  experiment_id: string;
+  status: string;
+}
+
+export interface ExperimentResult {
+  experiment_id: string;
+  parent_run_id: string;
+  status: string;
+  overrides: Record<string, unknown>;
+}
+
+export interface FeedbackResponse {
+  status: string;
+  tag_id: string;
+}
+
+export interface RegionMetrics {
+  area_hectares: number;
+  confidence: number;
+  cloud_coverage_pct: number;
+  fusion_weight: number;
+  ndvi_mean: number;
+  vh_backscatter: number;
+}
+
+// ─── Ingestion ───────────────────────────────────────────────────────────────
+
+/**
+ * Upload a satellite image file.
+ * Returns image_id to be used in subsequent query calls.
+ * Supports progress tracking via onProgress callback.
+ */
+export async function uploadImage(
+  file: File,
+  onProgress?: (pct: number) => void
+): Promise<UploadImageResponse> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}/api/v1/images`);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText) as UploadImageResponse);
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.send(formData);
+  });
+}
+
+/**
+ * Link two images as a bi-temporal pair.
+ */
+export async function linkImagePair(
+  imageId1: string,
+  imageId2: string,
+  relation: string = "temporal"
+): Promise<PairResponse> {
+  return apiFetch<PairResponse>("/api/v1/pairs", {
+    method: "POST",
+    body: JSON.stringify({ image_id_1: imageId1, image_id_2: imageId2, relation }),
+  });
+}
+
+// ─── Query & Runs ────────────────────────────────────────────────────────────
+
+/**
+ * Submit a natural-language query against a set of uploaded images.
+ * Returns run_id to poll for results.
+ */
+export async function submitQuery(req: QueryRequest): Promise<QueryResponse> {
+  return apiFetch<QueryResponse>("/api/v1/query", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+/**
+ * Poll the status + results of a run.
+ */
+export async function getRun(runId: string): Promise<RunResult> {
+  return apiFetch<RunResult>(`/api/v1/runs/${runId}`);
+}
+
+/**
+ * Poll run until status is 'done' or 'failed'.
+ * intervalMs — how often to poll (default 2s).
+ * timeoutMs  — maximum total wait time (default 5 min).
+ */
+export async function pollRun(
+  runId: string,
+  onUpdate?: (result: RunResult) => void,
+  intervalMs = 2000,
+  timeoutMs = 300_000
+): Promise<RunResult> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await getRun(runId);
+    onUpdate?.(result);
+    if (result.status === "done" || result.status === "failed") return result;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error("Run polling timed out");
+}
+
+/**
+ * Fetch the evidence graph for a completed run.
+ */
+export async function getRunGraph(runId: string): Promise<GraphData> {
+  return apiFetch<GraphData>(`/api/v1/runs/${runId}/graph`);
+}
+
+// ─── Exports ─────────────────────────────────────────────────────────────────
+
+export type ExportFormat = "geotiff" | "geojson" | "csv" | "stac" | "audit-report" | "notebook";
+
+/**
+ * Trigger a run export. Returns the raw Response so caller can stream/download.
+ * For JSON formats call .json(); for binary formats call .blob().
+ */
+export async function exportRun(
+  runId: string,
+  format: ExportFormat
+): Promise<Response> {
+  const res = await fetch(`${BASE}/api/v1/runs/${runId}/export/${format}`);
+  if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+  return res;
+}
+
+/**
+ * Helper: trigger a browser file download for a run export.
+ */
+export async function downloadRunExport(
+  runId: string,
+  format: ExportFormat
+): Promise<void> {
+  const res = await exportRun(runId, format);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const ext: Record<ExportFormat, string> = {
+    geotiff: "zip",
+    geojson: "geojson",
+    csv: "csv",
+    stac: "json",
+    "audit-report": "pdf",
+    notebook: "ipynb",
+  };
+  a.download = `${runId}.${ext[format]}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Experiments ─────────────────────────────────────────────────────────────
+
+/**
+ * Create an experiment from a parent run with parameter overrides.
+ */
+export async function createExperiment(
+  runId: string,
+  parameterOverrides: Record<string, unknown>
+): Promise<ExperimentResponse> {
+  return apiFetch<ExperimentResponse>(`/api/v1/runs/${runId}/experiments`, {
+    method: "POST",
+    body: JSON.stringify(parameterOverrides),
+  });
+}
+
+/**
+ * Fetch the current status and results of an experiment.
+ */
+export async function getExperiment(experimentId: string): Promise<ExperimentResult> {
+  return apiFetch<ExperimentResult>(`/api/v1/experiments/${experimentId}`);
+}
+
+/**
+ * Save a manual mask correction to an experiment.
+ */
+export async function saveCorrection(
+  experimentId: string,
+  evidenceNodeId: string,
+  geometryGeojson: Record<string, unknown>,
+  operation: "include" | "exclude"
+): Promise<{ status: string; message: string }> {
+  return apiFetch(`/api/v1/experiments/${experimentId}/corrections`, {
+    method: "POST",
+    body: JSON.stringify({ evidence_node_id: evidenceNodeId, geometry_geojson: geometryGeojson, operation }),
+  });
+}
+
+// ─── Feedback ────────────────────────────────────────────────────────────────
+
+export type FeedbackTag = "accepted" | "rejected" | "needs_review";
+
+/**
+ * Submit a feedback tag on an evidence node.
+ */
+export async function submitFeedback(
+  nodeId: string,
+  tag: FeedbackTag,
+  note?: string
+): Promise<FeedbackResponse> {
+  return apiFetch<FeedbackResponse>(`/api/v1/evidence-nodes/${nodeId}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ tag, note }),
+  });
+}
+
+// ─── Regions ─────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch computed metrics for a region.
+ */
+export async function getRegionMetrics(regionId: string): Promise<RegionMetrics> {
+  return apiFetch<RegionMetrics>(`/api/v1/regions/${regionId}/metrics`);
+}
+
+// ─── Health ──────────────────────────────────────────────────────────────────
+
+export async function healthCheck(): Promise<{ status: string; app: string }> {
+  return apiFetch("/health");
+}

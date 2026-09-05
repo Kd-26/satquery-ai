@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "../index.css";
+import { ModeProvider } from "@/contexts/ModeContext";
+import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
   title: "SatQuery AI – Remote Sensing Workspace",
@@ -19,7 +21,10 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-bg text-text-primary antialiased selection:bg-white/10 selection:text-white">
-        {children}
+        <ModeProvider>
+          {children}
+          <Toaster />
+        </ModeProvider>
       </body>
     </html>
   );
