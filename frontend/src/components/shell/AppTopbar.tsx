@@ -4,11 +4,12 @@ import { usePathname } from "next/navigation";
 import { ChevronRight, Activity, Bell, User } from "lucide-react";
 import { useState } from "react";
 import JobCentre from "./JobCentre";
+import { useMode } from "@/contexts/ModeContext";
 
 export default function AppTopbar() {
   const pathname = usePathname();
   const [jobCentreOpen, setJobCentreOpen] = useState(false);
-  const [mode, setMode] = useState<"simple" | "scientific">("simple");
+  const { mode, setMode } = useMode();
 
   // Generate breadcrumb from pathname
   const paths = pathname?.split("/").filter(Boolean) || [];
@@ -29,7 +30,7 @@ export default function AppTopbar() {
 
         {/* Right Controls */}
         <div className="flex items-center gap-4">
-          {/* Mode Toggle */}
+          {/* Mode Toggle — wired to global ModeContext */}
           <div className="flex items-center bg-surface border border-stroke rounded-full p-0.5">
             <button
               onClick={() => setMode("simple")}
@@ -52,14 +53,14 @@ export default function AppTopbar() {
           <div className="w-px h-5 bg-stroke" />
 
           {/* Jobs & Notifications */}
-          <button 
+          <button
             onClick={() => setJobCentreOpen(true)}
             className="relative p-2 text-muted hover:text-text-primary transition-colors rounded-full hover:bg-white/5"
           >
             <Activity className="w-4 h-4" />
             <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
           </button>
-          
+
           <button className="p-2 text-muted hover:text-text-primary transition-colors rounded-full hover:bg-white/5">
             <Bell className="w-4 h-4" />
           </button>
