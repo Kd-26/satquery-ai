@@ -1,50 +1,80 @@
 import type { Config } from "tailwindcss";
 
-const config: Config = {
+export default {
+  darkMode: ["class"],
   content: [
-    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./pages/**/*.{ts,tsx}",
+    "./components/**/*.{ts,tsx}",
+    "./app/**/*.{ts,tsx}",
+    "./src/**/*.{ts,tsx}",
   ],
+  prefix: "",
   theme: {
-    extend: {
-      colors: {
-        primary: "#0B0E14",
-        panel: "#12161F",
-        "panel-raised": "#181D29",
-        subtle: "#232937",
-        "text-primary": "#E6E9EF",
-        "text-secondary": "#8A93A6",
-        accent: "#3DDBD9",
-        success: "#3FB950",
-        warning: "#D29922",
-        danger: "#F85149",
-        mask: {
-          water: "#4C8DFF",
-          vegetation: "#3FB950",
-          "built-up": "#F0883E",
-          cropland: "#9ECE6A",
-          "bare-soil": "#C9A876",
-          unknown: "#5B6272",
-        }
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
       },
+    },
+    extend: {
       fontFamily: {
-        sans: ['var(--font-inter)', 'sans-serif'],
-        mono: ['var(--font-jetbrains-mono)', 'monospace'],
+        display: ["var(--font-display)", "serif"],
+        body: ["var(--font-body)", "sans-serif"],
+      },
+      colors: {
+        bg: "hsl(var(--bg))",
+        surface: "hsl(var(--surface))",
+        "text-primary": "hsl(var(--text))",
+        muted: "hsl(var(--muted))",
+        accent: "hsl(var(--accent))",
+        stroke: "hsl(var(--stroke))",
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
       },
       borderRadius: {
-        DEFAULT: '8px',
-        sm: '6px',
-        full: '8px', // deliberately no pills
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
       },
-      transitionDuration: {
-        DEFAULT: '180ms',
+      keyframes: {
+        "accordion-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
       },
-      transitionTimingFunction: {
-        DEFAULT: 'cubic-bezier(0.0, 0.0, 0.2, 1)',
-      }
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+      },
     },
   },
-  plugins: [],
-};
-export default config;
+  plugins: [require("tailwindcss-animate")],
+} satisfies Config;

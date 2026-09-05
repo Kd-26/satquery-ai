@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-body: 'Inter', sans-serif;
+    --font-display: 'Instrument Serif', serif;
+
+    --bg: 0 0% 4%;
+    --surface: 0 0% 8%;
+    --text: 0 0% 96%;
+    --muted: 0 0% 53%;
+    --accent: 0 0% 96%;
+    --stroke: 0 0% 12%;
+    --accent-gradient: linear-gradient(90deg, #89AACC 0%, #4E85BF 100%);
+
+    --background: 0 0% 4%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 96%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 96%;
+    --muted-foreground: 0 0% 53%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 96%;
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 210 30% 70%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    font-family: var(--font-body);
+  }
+  body {
+    @apply bg-bg text-text-primary;
+  }
+}
+
+/* Accent gradient utility */
+.accent-gradient {
+  background: linear-gradient(90deg, #89AACC 0%, #4E85BF 100%);
+}
+
+.accent-gradient-reverse {
+  background: linear-gradient(90deg, #4E85BF 0%, #89AACC 100%);
+}
+
+/* Scroll animation */
+@keyframes scroll-down {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(200%); }
+}
+.animate-scroll-down {
+  animation: scroll-down 1.5s ease-in-out infinite;
+}
+
+/* Fade in for role cycling */
+@keyframes role-fade-in {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-role-fade-in {
+  animation: role-fade-in 0.4s ease-out forwards;
+}
+
+/* Animated gradient border */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animated-gradient-border {
+  background-size: 300% 300%;
+  animation: gradient-shift 6s ease infinite;
+}
