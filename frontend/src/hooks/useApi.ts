@@ -10,7 +10,13 @@ export function useRun(runId: string | null) {
             return res.json();
         },
         enabled: !!runId,
-        staleTime: 1000 * 60 * 5, // cache for 5 minutes
+        staleTime: 1000 * 60 * 5,
+        // Poll every 2s, but stop automatically once the run is in a terminal state
+        refetchInterval: (query) => {
+            const status = query.state.data?.status;
+            if (status === 'done' || status === 'error') return false;
+            return 2000;
+        },
     });
 }
 
