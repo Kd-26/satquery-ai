@@ -4,9 +4,17 @@ from sqlalchemy import select
 from typing import Dict, Any
 import uuid
 
+from pydantic import BaseModel
+import json
+from pathlib import Path
 from backend.db.session import get_session
-from backend.db.models import Experiment
+from backend.db.models import Experiment, FeedbackTag, FeedbackTagEnum
 from backend.controller.experiments import create_experiment
+
+class CorrectionRequest(BaseModel):
+    evidence_node_id: str
+    geometry_geojson: dict
+    operation: str  # "include" or "exclude"
 
 router = APIRouter(tags=["experiments"])
 
@@ -58,16 +66,6 @@ async def api_get_experiment(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-from pydantic import BaseModel
-import json
-from pathlib import Path
-from backend.db.models import FeedbackTag, FeedbackTagEnum
-
-
-class CorrectionRequest(BaseModel):
-    evidence_node_id: str
-    geometry_geojson: dict
-    operation: str  # "include" or "exclude"
 
 
 @router.post("/experiments/{experiment_id}/corrections")

@@ -54,12 +54,14 @@ async def export_audit_report(
     return {"status": "mock", "message": f"Generated PDF Audit Report for {run_id}"}
 
 
+import asyncio
+
 @router.get("/notebook")
 async def export_notebook(run_id: uuid.UUID):
     """Generates and returns the reproducible Jupyter Notebook (.ipynb) for the run."""
     try:
-        nb_path = generate_notebook(str(run_id))
-        if os.path.exists(nb_path):
+        nb_path = await asyncio.to_thread(generate_notebook, str(run_id))
+        if await asyncio.to_thread(os.path.exists, nb_path):
             return FileResponse(
 
                 nb_path,
