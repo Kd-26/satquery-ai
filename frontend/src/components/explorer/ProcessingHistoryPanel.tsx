@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Panel } from '../ui/Panel';
 import { Badge } from '../ui/Badge';
-import { FixedSizeList as List } from 'react-window';
+import { VariableSizeList as List } from 'react-window';
 
 interface TraceStep {
   id: string;
@@ -25,6 +25,7 @@ const MOCK_TRACE: TraceStep[] = [
 
 export function ProcessingHistoryPanel({ runId }: { runId: string }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const listRef = React.useRef<any>(null);
   
   // Create 30 items for testing virtualization
   const steps = [...MOCK_TRACE];
@@ -32,8 +33,11 @@ export function ProcessingHistoryPanel({ runId }: { runId: string }) {
     steps.push({ ...MOCK_TRACE[0], id: `mock-${steps.length}`, name: `Step ${steps.length}` });
   }
 
-  const toggleExpand = (id: string) => {
+  const toggleExpand = (id: string, index: number) => {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+    if (listRef.current) {
+      listRef.current.resetAfterIndex(index);
+    }
   };
 
   const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
@@ -41,10 +45,10 @@ export function ProcessingHistoryPanel({ runId }: { runId: string }) {
     const isExpanded = expanded[step.id];
 
     return (
-      <div style={{ ...style, height: isExpanded ? 180 : 60 }} className="px-4">
+      <div style={{ ...style }} className="px-4">
         <div 
-          className="border border-border-primary rounded bg-surface-secondary p-3 mb-2 cursor-pointer hover:bg-surface-primary/50 transition-colors"
-          onClick={() => toggleExpand(step.id)}
+          className="border border-border-primary rounded bg-surface-secondary p-3 mb-2 cursor-pointer hover:bg-surface-primary/50 transition-colors h-full"
+          onClick={() => toggleExpand(step.id, index)}
         >
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
@@ -96,6 +100,7 @@ export function ProcessingHistoryPanel({ runId }: { runId: string }) {
       
       <div className="flex-1 overflow-hidden pt-4">
         <List
+          ref={listRef}
           height={600} // This should be dynamic based on container in a real app
           itemCount={steps.length}
           itemSize={(index) => expanded[steps[index].id] ? 180 : 60}
