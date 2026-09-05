@@ -1,100 +1,122 @@
 "use client";
 
-import { CheckCircle2, ChevronRight, FileText, BarChart3, AlertTriangle, Layers, Brain } from "lucide-react";
+import { CheckCircle2, FileText, AlertTriangle, Layers, Brain, Loader2 } from "lucide-react";
+import type { RunResult, GraphData } from "@/lib/api";
 
-export default function EvidencePanel() {
+interface EvidencePanelProps {
+  run?: RunResult | null;
+  graph?: GraphData | null;
+  loading?: boolean;
+}
+
+export default function EvidencePanel({ run, graph, loading }: EvidencePanelProps) {
+  if (loading) {
+    return (
+      <div className="flex-1 overflow-y-auto space-y-4 pb-20 scrollbar-hide flex items-start pt-4">
+        <div className="flex items-center gap-2 text-muted">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span className="text-sm">Waiting for analysis results…</span>
+        </div>
+      </div>
+    );
+  }
+
+  const answer = run?.answer_obj?.plain_language ?? run?.answer;
+  const limitations = run?.limitations ?? [];
+  const traces = run?.traces ?? [];
+  const nodes = graph?.nodes ?? [];
+
   return (
     <div className="flex-1 overflow-y-auto space-y-6 pb-20 scrollbar-hide">
-      
-      {/* 1. Direct Answer */}
-      <section className="bg-surface border border-stroke rounded-3xl p-5 md:p-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/10 rounded-bl-full blur-3xl pointer-events-none" />
-        
-        <div className="flex items-center gap-2 text-sky-400 mb-3">
-          <Brain className="w-4 h-4" />
-          <h3 className="text-xs uppercase tracking-widest font-medium">Direct Answer</h3>
-        </div>
-        
-        <p className="text-text-primary text-base leading-relaxed">
-          The total area of surface water detected in the specified region is <strong className="text-sky-400">14.2 sq km</strong>. This represents a <strong className="text-red-400">2.1% decrease</strong> from the historical average for this month.
-        </p>
-      </section>
 
-      {/* 2. Key Findings */}
-      <section>
-        <div className="flex items-center gap-2 mb-4 px-2">
-          <FileText className="w-4 h-4 text-muted" />
-          <h3 className="text-sm font-medium text-text-primary">Key Findings Evidence</h3>
-        </div>
-        
-        <div className="space-y-3">
-          {[
-            { id: 1, text: "Largest contiguous water body is located in the north-east quadrant.", proof: "Polygon 42", confidence: "High" },
-            { id: 2, text: "Suspended sediment levels appear elevated near the river mouth.", proof: "NDWI + Visual", confidence: "Moderate" },
-            { id: 3, text: "Urban expansion encroachment detected on the southern bank.", proof: "Change Map", confidence: "High" }
-          ].map(finding => (
-            <div key={finding.id} className="bg-surface border border-stroke rounded-2xl p-4 group cursor-pointer hover:border-sky-500/30 hover:bg-white/5 transition-all">
-              <p className="text-sm text-text-primary leading-relaxed mb-3 pr-6 relative">
-                {finding.text}
-                <ChevronRight className="w-4 h-4 text-muted absolute right-0 top-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </p>
-              
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] uppercase tracking-wider text-muted bg-bg border border-stroke px-2 py-1 rounded-md flex items-center gap-1.5">
-                  <Layers className="w-3 h-3 text-sky-400" />
-                  {finding.proof}
-                </span>
-                
-                <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted">
-                  <div className={`w-1.5 h-1.5 rounded-full ${finding.confidence === 'High' ? 'bg-green-400' : 'bg-yellow-400'}`} />
-                  {finding.confidence} Conf
+      {/* 1. Direct Answer */}
+      {answer && (
+        <section className="bg-surface border border-stroke rounded-3xl p-5 md:p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/10 rounded-bl-full blur-3xl pointer-events-none" />
+          <div className="flex items-center gap-2 text-sky-400 mb-3">
+            <Brain className="w-4 h-4" />
+            <h3 className="text-xs uppercase tracking-widest font-medium">Direct Answer</h3>
+          </div>
+          <p className="text-text-primary text-base leading-relaxed">{answer}</p>
+        </section>
+      )}
+
+      {/* Technical answer */}
+      {run?.answer_obj?.technical && (
+        <section className="bg-surface border border-stroke rounded-3xl p-5">
+          <div className="flex items-center gap-2 text-muted mb-3">
+            <FileText className="w-4 h-4" />
+            <h3 className="text-xs uppercase tracking-widest font-medium">Technical Detail</h3>
+          </div>
+          <p className="text-xs text-muted leading-relaxed font-mono">{run.answer_obj.technical}</p>
+        </section>
+      )}
+
+      {/* Evidence nodes from graph */}
+      {nodes.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-4 px-2">
+            <Layers className="w-4 h-4 text-muted" />
+            <h3 className="text-sm font-medium text-text-primary">Evidence Graph Nodes</h3>
+          </div>
+          <div className="space-y-2">
+            {nodes.map((node) => (
+              <div key={node.id} className="bg-surface border border-stroke rounded-2xl p-4 hover:border-sky-500/30 hover:bg-white/5 transition-all cursor-pointer">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-text-primary font-medium">{node.label}</p>
+                  <span className="text-[10px] uppercase tracking-wider text-muted bg-bg border border-stroke px-2 py-1 rounded-md">
+                    {node.type}
+                  </span>
+                </div>
+                <p className="text-[10px] text-muted font-mono mt-1">{node.id}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Execution Record */}
+      {traces.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-4 px-2">
+            <CheckCircle2 className="w-4 h-4 text-muted" />
+            <h3 className="text-sm font-medium text-text-primary">Execution Record</h3>
+          </div>
+          <div className="bg-surface border border-stroke rounded-2xl p-1 overflow-hidden">
+            {traces.map((t, i) => (
+              <div
+                key={i}
+                className={`p-3 hover:bg-white/5 transition-colors flex justify-between items-center cursor-pointer ${
+                  i < traces.length - 1 ? "border-b border-stroke" : ""
+                }`}
+              >
+                <span className="text-sm text-muted">{t.model_or_tool}</span>
+                <span className="text-xs text-text-primary font-mono bg-bg px-2 py-1 rounded">
+                  {t.execution_time_ms}ms
                 </span>
               </div>
-            </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Limitations */}
+      {limitations.length > 0 && (
+        <section className="bg-yellow-500/5 border border-yellow-500/20 rounded-3xl p-5 md:p-6">
+          <div className="flex items-center gap-2 text-yellow-400 mb-3">
+            <AlertTriangle className="w-4 h-4" />
+            <h3 className="text-xs uppercase tracking-widest font-medium">Evidence Limitations</h3>
+          </div>
+          {limitations.map((lim, i) => (
+            <p key={i} className="text-sm text-yellow-400/80 leading-relaxed mb-2">{lim}</p>
           ))}
-        </div>
-      </section>
+        </section>
+      )}
 
-      {/* 3. Execution Record */}
-      <section>
-        <div className="flex items-center gap-2 mb-4 px-2">
-          <CheckCircle2 className="w-4 h-4 text-muted" />
-          <h3 className="text-sm font-medium text-text-primary">Execution Record</h3>
-        </div>
-        
-        <div className="bg-surface border border-stroke rounded-2xl p-1 overflow-hidden">
-          <div className="p-3 border-b border-stroke hover:bg-white/5 transition-colors flex justify-between items-center cursor-pointer">
-            <span className="text-sm text-muted">Source Evidence</span>
-            <span className="text-xs text-text-primary font-mono bg-bg px-2 py-1 rounded">sentinel2_coastal_2024.tif</span>
-          </div>
-          <div className="p-3 border-b border-stroke hover:bg-white/5 transition-colors flex justify-between items-center cursor-pointer">
-            <span className="text-sm text-muted">Segmentation Model</span>
-            <span className="text-xs text-text-primary font-mono bg-bg px-2 py-1 rounded">SegFormer-B4 v1.2</span>
-          </div>
-          <div className="p-3 border-b border-stroke hover:bg-white/5 transition-colors flex justify-between items-center cursor-pointer">
-            <span className="text-sm text-muted">Physics Tool</span>
-            <span className="text-xs text-text-primary font-mono bg-bg px-2 py-1 rounded">NDWI (Green, NIR)</span>
-          </div>
-          <div className="p-3 hover:bg-white/5 transition-colors flex justify-between items-center cursor-pointer">
-            <span className="text-sm text-muted">Time Elapsed</span>
-            <span className="text-xs text-text-primary font-mono bg-bg px-2 py-1 rounded">14.2s</span>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. Limitations */}
-      <section className="bg-yellow-500/5 border border-yellow-500/20 rounded-3xl p-5 md:p-6">
-        <div className="flex items-center gap-2 text-yellow-400 mb-3">
-          <AlertTriangle className="w-4 h-4" />
-          <h3 className="text-xs uppercase tracking-widest font-medium">Evidence Limitations</h3>
-        </div>
-        <p className="text-sm text-yellow-400/80 leading-relaxed mb-3">
-          Clouds cover 4.2% of the total AOI. Water bodies beneath these clouds are excluded from the area measurement.
-        </p>
-        <div className="flex gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-2 py-1 rounded">Masked: Clouds</span>
-        </div>
-      </section>
+      {/* Empty state — run done but no answer yet (shouldn't happen with mocks) */}
+      {!answer && !loading && run?.status === "done" && (
+        <p className="text-sm text-muted text-center pt-4">No answer returned by backend.</p>
+      )}
 
     </div>
   );

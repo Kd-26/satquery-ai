@@ -1,15 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import ExperimentBuilder from "@/components/lab/ExperimentBuilder";
 import ParameterConsole from "@/components/lab/ParameterConsole";
+import { createExperiment, getExperiment, type ExperimentResult } from "@/lib/api";
+import { Loader2, FlaskConical, AlertCircle, CheckCircle2 } from "lucide-react";
 
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 
+// Static run history (backend run history endpoint not yet available)
 const RUNS = [
   { id: "run-001", date: "Sep 05, 2026", status: "Completed", water: "14.2 km²", conf: 92, params: "Cloud: 10%, NDWI: 0.3" },
   { id: "run-002", date: "Sep 04, 2026", status: "Completed", water: "16.8 km²", conf: 88, params: "Cloud: 15%, NDWI: 0.25" },
-  { id: "run-003", date: "Sep 03, 2026", status: "Failed",    water: "—",       conf: 0,  params: "Cloud: 5%, NDWI: 0.45" },
+  { id: "run-003", date: "Sep 03, 2026", status: "Failed",    water: "—",        conf: 0,  params: "Cloud: 5%, NDWI: 0.45" },
 ];
 
 const statusColor: Record<string, string> = {
@@ -19,6 +23,34 @@ const statusColor: Record<string, string> = {
 };
 
 export default function LabPage() {
+  // Experiment state
+  const [selectedRunId, setSelectedRunId] = useState<string>(RUNS[0].id);
+  const [overrides, setOverrides] = useState<Record<string, unknown>>({});
+  const [creating, setCreating] = useState(false);
+  const [experiment, setExperiment] = useState<ExperimentResult | null>(null);
+  const [expError, setExpError] = useState<string | null>(null);
+
+  const handleCreateExperiment = async (paramOverrides: Record<string, unknown>) => {
+    setCreating(true);
+    setExpError(null);
+    setExperiment(null);
+    try {
+      const res = await createExperiment(selectedRunId, paramOverrides);
+      // Poll for result
+      let result: ExperimentResult | null = null;
+      for (let i = 0; i < 15; i++) {
+        result = await getExperiment(res.experiment_id);
+        if (result.status !== "running") break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      setExperiment(result);
+    } catch (e) {
+      setExpError(e instanceof Error ? e.message : "Experiment failed");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-bg">
       <div className="max-w-[1400px] mx-auto px-6 md:px-10 lg:px-12 pt-8 pb-20">
@@ -49,7 +81,7 @@ export default function LabPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1, ease }}
           >
-            <ExperimentBuilder />
+            <ExperimentBuilder onRunExperiment={handleCreateExperiment} />
           </motion.div>
 
           {/* Centre: Parameter Console + Run History */}
@@ -59,8 +91,43 @@ export default function LabPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.15, ease }}
           >
-            {/* Parameter Console */}
-            <ParameterConsole />
+            <ParameterConsole
+              selectedRunId={selectedRunId}
+              onOverridesChange={setOverrides}
+              onRunExperiment={handleCreateExperiment}
+              creating={creating}
+            />
+
+            {/* Experiment Result */}
+            {(creating || experiment || expError) && (
+              <div className="bg-surface border border-stroke rounded-3xl p-5">
+                <h3 className="text-sm font-medium text-text-primary mb-3">Experiment Result</h3>
+                {creating && (
+                  <div className="flex items-center gap-2 text-sky-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Running experiment…</span>
+                  </div>
+                )}
+                {expError && (
+                  <div className="flex items-center gap-2 text-red-400">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-sm">{expError}</span>
+                  </div>
+                )}
+                {experiment && !creating && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-green-400 mb-2">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span className="text-sm font-medium capitalize">{experiment.status}</span>
+                    </div>
+                    <div className="text-xs font-mono text-muted space-y-1">
+                      <p>id: {experiment.experiment_id.slice(0, 16)}…</p>
+                      <p>parent: {experiment.parent_run_id}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Run History */}
             <div className="bg-surface border border-stroke rounded-3xl p-6">
@@ -68,10 +135,17 @@ export default function LabPage() {
                 <h3 className="text-base font-medium text-text-primary">Run History</h3>
                 <span className="text-xs text-muted">{RUNS.length} runs</span>
               </div>
-
               <div className="space-y-3">
                 {RUNS.map((run) => (
-                  <div key={run.id} className="group flex items-center gap-4 p-3 rounded-2xl bg-bg border border-stroke hover:border-sky-500/30 transition-all cursor-pointer">
+                  <div
+                    key={run.id}
+                    onClick={() => setSelectedRunId(run.id)}
+                    className={`group flex items-center gap-4 p-3 rounded-2xl bg-bg border transition-all cursor-pointer ${
+                      selectedRunId === run.id
+                        ? "border-sky-500/50 bg-sky-500/5"
+                        : "border-stroke hover:border-sky-500/30"
+                    }`}
+                  >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs font-mono text-muted">{run.id}</span>
@@ -81,12 +155,9 @@ export default function LabPage() {
                       </div>
                       <p className="text-xs text-muted truncate">{run.params}</p>
                     </div>
-
                     <div className="text-right shrink-0">
                       <p className="text-sm font-display text-text-primary">{run.water}</p>
-                      {run.conf > 0 && (
-                        <p className="text-[10px] text-green-400">{run.conf}% conf</p>
-                      )}
+                      {run.conf > 0 && <p className="text-[10px] text-green-400">{run.conf}% conf</p>}
                     </div>
                   </div>
                 ))}
@@ -107,7 +178,6 @@ export default function LabPage() {
                 <button className="text-xs text-sky-400 hover:text-sky-300 transition-colors">Select runs</button>
               </div>
 
-              {/* Compare Card */}
               <div className="grid grid-cols-2 gap-3 mb-6">
                 {[RUNS[0], RUNS[1]].map((run) => (
                   <div key={run.id} className="bg-bg border border-stroke rounded-2xl p-4 flex flex-col gap-2">
@@ -121,8 +191,8 @@ export default function LabPage() {
               <div className="space-y-3">
                 {[
                   { label: "Water Area", a: "14.2 km²", b: "16.8 km²", delta: "−15.5%", neg: true },
-                  { label: "Confidence", a: "92%",      b: "88%",      delta: "+4%",    neg: false },
-                  { label: "Masked Px",  a: "4.2%",     b: "11.7%",    delta: "−7.5%",  neg: false },
+                  { label: "Confidence",  a: "92%",      b: "88%",      delta: "+4%",    neg: false },
+                  { label: "Masked Px",   a: "4.2%",     b: "11.7%",    delta: "−7.5%",  neg: false },
                 ].map(row => (
                   <div key={row.label} className="flex items-center gap-3 text-xs p-2 rounded-xl hover:bg-white/5 transition-colors">
                     <span className="text-muted w-24 shrink-0">{row.label}</span>
@@ -133,7 +203,6 @@ export default function LabPage() {
                 ))}
               </div>
 
-              {/* Notebook / Notes */}
               <div className="mt-6 pt-5 border-t border-stroke">
                 <h4 className="text-xs text-muted uppercase tracking-wider mb-3">Research Notes</h4>
                 <textarea
@@ -143,6 +212,7 @@ export default function LabPage() {
               </div>
             </div>
           </motion.div>
+
         </div>
       </div>
     </div>

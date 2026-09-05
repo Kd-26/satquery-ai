@@ -2,11 +2,15 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Send, Sparkles, Lightbulb } from "lucide-react";
+import { Send, Sparkles, Lightbulb, AlertCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { submitQuery, linkImagePair } from "@/lib/api";
+import type { UploadedFile } from "@/components/analyze/DropZone";
 
 interface QueryComposerProps {
-  onComplete: () => void;
+  onComplete: (runId: string) => void;
   mode: "simple" | "scientific";
+  files?: UploadedFile[]; // uploaded files with imageIds from DropZone
 }
 
 const EXAMPLE_QUERIES = [
@@ -16,25 +20,50 @@ const EXAMPLE_QUERIES = [
   "Identify flooded areas using SAR backscatter thresholds.",
 ];
 
-export default function QueryComposer({ onComplete, mode }: QueryComposerProps) {
+export default function QueryComposer({ onComplete, mode, files = [] }: QueryComposerProps) {
   const [query, setQuery] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
-  const handleRun = () => {
-    if (!query) return;
+  const handleRun = async () => {
+    if (!query.trim()) return;
     setAnalyzing(true);
-    setTimeout(() => {
+    setError(null);
+
+    try {
+      // Collect image IDs from successfully uploaded files
+      const imageIds = files
+        .filter((f) => f.status === "done" && f.imageId)
+        .map((f) => f.imageId as string);
+
+      // If two images uploaded, link them as a bi-temporal pair
+      if (imageIds.length === 2) {
+        await linkImagePair(imageIds[0], imageIds[1]).catch(() => {
+          // Non-blocking — pair linking is best-effort
+        });
+      }
+
+      const res = await submitQuery({ query: query.trim(), image_ids: imageIds });
+      onComplete(res.run_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Query submission failed");
       setAnalyzing(false);
-      onComplete();
-    }, 1500);
+    }
   };
 
   const charLabel = query.length > 0 ? `${query.length} chars` : "Natural language";
+  const hasImages = files.some((f) => f.status === "done" && f.imageId);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium text-text-primary">Natural Language Query</h3>
+        {!hasImages && (
+          <span className="text-xs text-yellow-400 bg-yellow-500/10 px-2 py-1 rounded-full border border-yellow-500/20">
+            No images — demo mode
+          </span>
+        )}
       </div>
 
       <div className="relative group">
@@ -43,6 +72,7 @@ export default function QueryComposer({ onComplete, mode }: QueryComposerProps) 
           <textarea
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) handleRun(); }}
             placeholder={
               mode === "simple"
                 ? "Ask a plain language question about your imagery…"
@@ -58,12 +88,13 @@ export default function QueryComposer({ onComplete, mode }: QueryComposerProps) 
                 </button>
               )}
               <span className="text-xs">{charLabel}</span>
+              <span className="text-xs text-muted/50">· Ctrl+Enter to run</span>
             </div>
             <button
               onClick={handleRun}
               disabled={query.length === 0 || analyzing}
               className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-                query.length > 0
+                query.length > 0 && !analyzing
                   ? "bg-text-primary text-bg hover:scale-105"
                   : "bg-stroke/40 text-muted cursor-not-allowed"
               }`}
@@ -84,13 +115,24 @@ export default function QueryComposer({ onComplete, mode }: QueryComposerProps) 
         </div>
       </div>
 
+      {error && (
+        <div className="flex items-center gap-2 text-red-400 bg-red-500/10 border border-red-500/20 rounded-2xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <p className="text-sm">{error}</p>
+        </div>
+      )}
+
       <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-4">
         <div className="flex items-center gap-2 text-sky-400 mb-2">
           <Lightbulb className="w-4 h-4" />
           <h4 className="text-sm font-medium">Capability Hints</h4>
         </div>
         <p className="text-xs text-sky-400/80 leading-relaxed">
-          Based on the uploaded GeoTIFF, you can query for: <strong>area measurements, geographic distances, and NDVI indices</strong>. Temporal changes are disabled (only 1 image provided).
+          {hasImages
+            ? `${files.filter((f) => f.status === "done").length} image(s) uploaded. You can query for: `
+            : "No images uploaded yet — query will run in demo mode. Upload imagery for: "}
+          <strong>area measurements, geographic distances, NDVI, and SAR backscatter</strong>
+          {files.filter((f) => f.status === "done").length < 2 ? ". Temporal changes require 2 images." : " and temporal change detection."}
         </p>
       </div>
 

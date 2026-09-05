@@ -1,14 +1,17 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { UploadCloud, File as FileIcon, X, CheckCircle2, Image as ImageIcon } from "lucide-react";
+import { UploadCloud, File as FileIcon, X, CheckCircle2, Image as ImageIcon, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { uploadImage } from "@/lib/api";
 
 export type UploadedFile = {
   file: File;
   preview?: string;
   progress: number;
   status: "uploading" | "done" | "error";
+  imageId?: string; // returned by backend after successful upload
+  errorMsg?: string;
   metadata?: {
     type: "optical" | "sar" | "unknown";
     width: number;
@@ -49,18 +52,32 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
 
     setFiles((prev) => [...prev, newFile]);
 
-    let p = 0;
-    const interval = setInterval(() => {
-      p += 10;
+    // Real upload to POST /api/v1/images
+    uploadImage(file, (pct) => {
       setFiles((prev) =>
         prev.map((f) =>
-          f.file.name === file.name
-            ? { ...f, progress: p, status: p >= 100 ? "done" : "uploading" }
-            : f
+          f.file.name === file.name ? { ...f, progress: pct } : f
         )
       );
-      if (p >= 100) clearInterval(interval);
-    }, 200);
+    })
+      .then((res) => {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.file.name === file.name
+              ? { ...f, progress: 100, status: "done", imageId: res.image_id }
+              : f
+          )
+        );
+      })
+      .catch((err: Error) => {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.file.name === file.name
+              ? { ...f, status: "error", errorMsg: err.message }
+              : f
+          )
+        );
+      });
   };
 
   const handleDrop = useCallback(
@@ -87,6 +104,7 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
   };
 
   const allDone = files.length > 0 && files.every((f) => f.status === "done");
+  const hasError = files.some((f) => f.status === "error");
 
   return (
     <div className="space-y-6">
@@ -146,7 +164,9 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-surface border border-stroke rounded-2xl p-4 flex gap-4 relative overflow-hidden"
+                className={`bg-surface border rounded-2xl p-4 flex gap-4 relative overflow-hidden ${
+                  f.status === "error" ? "border-red-500/40" : "border-stroke"
+                }`}
               >
                 {f.status === "uploading" && (
                   <div
@@ -164,6 +184,11 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
                   {f.status === "done" && (
                     <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-bg rounded-full flex items-center justify-center">
                       <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    </div>
+                  )}
+                  {f.status === "error" && (
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-bg rounded-full flex items-center justify-center">
+                      <AlertCircle className="w-4 h-4 text-red-400" />
                     </div>
                   )}
                 </div>
@@ -189,12 +214,24 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
                     ) : (
                       <span className="text-yellow-400">Limited Evidence</span>
                     )}
+                    {f.imageId && (
+                      <>
+                        <span className="w-1 h-1 rounded-full bg-stroke" />
+                        <span className="text-green-400 font-mono truncate max-w-[80px]" title={f.imageId}>
+                          id:{f.imageId.slice(0, 8)}…
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   {f.status === "uploading" && (
                     <div className="w-full h-1 bg-bg rounded-full overflow-hidden">
                       <div className="h-full bg-sky-400 transition-all duration-300" style={{ width: `${f.progress}%` }} />
                     </div>
+                  )}
+
+                  {f.status === "error" && (
+                    <p className="text-xs text-red-400 leading-relaxed">{f.errorMsg ?? "Upload failed"}</p>
                   )}
                 </div>
               </motion.div>
@@ -222,6 +259,16 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
           </motion.div>
         )}
       </AnimatePresence>
+
+      {hasError && (
+        <p className="text-center text-xs text-red-400">
+          Some files failed to upload. Remove them and try again, or check the backend is running at{" "}
+          <code className="bg-red-500/10 px-1 rounded">
+            {process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}
+          </code>
+          .
+        </p>
+      )}
     </div>
   );
 }

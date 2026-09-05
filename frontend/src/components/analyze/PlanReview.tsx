@@ -1,19 +1,35 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Play, Settings2, Code2, ShieldCheck, ChevronRight } from "lucide-react";
-import Link from "next/link";
+import { Play, Settings2, Code2, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface PlanReviewProps {
   mode: "simple" | "scientific";
+  runId?: string | null;
 }
 
-export default function PlanReview({ mode }: PlanReviewProps) {
+export default function PlanReview({ mode, runId }: PlanReviewProps) {
+  const router = useRouter();
+
+  const handleExecute = () => {
+    // Navigate to /insights, pass run_id as URL query param
+    const dest = runId ? `/insights?runId=${encodeURIComponent(runId)}` : "/insights";
+    router.push(dest);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium text-text-primary">Execution Plan</h3>
-        <span className="text-xs px-2.5 py-1 rounded-full bg-sky-500/15 text-sky-400">Ready</span>
+        <div className="flex items-center gap-2">
+          {runId && (
+            <span className="text-xs font-mono text-muted bg-surface border border-stroke px-2 py-1 rounded-lg truncate max-w-[140px]" title={runId}>
+              run: {runId.slice(0, 8)}…
+            </span>
+          )}
+          <span className="text-xs px-2.5 py-1 rounded-full bg-sky-500/15 text-sky-400">Ready</span>
+        </div>
       </div>
 
       {mode === "simple" ? (
@@ -25,7 +41,8 @@ export default function PlanReview({ mode }: PlanReviewProps) {
           </div>
           <h4 className="text-xl md:text-2xl text-text-primary font-display italic mb-3">Analysis Ready</h4>
           <p className="text-sm text-muted max-w-md mx-auto leading-relaxed">
-            SatQuery AI will extract the water bodies from the provided GeoTIFF using a multispectral segmentation model, calculate the total area, and return the exact measurement in square kilometers.
+            SatQuery AI will extract the water bodies from the provided imagery using a multispectral
+            segmentation model, calculate the total area, and return the exact measurement in square kilometres.
           </p>
         </div>
       ) : (
@@ -37,15 +54,15 @@ export default function PlanReview({ mode }: PlanReviewProps) {
             </div>
             <span className="text-xs text-muted font-mono">v1.4.2-opt</span>
           </div>
-          
+
           <div className="p-4 space-y-2">
             {[
-              { step: 1, name: "Load GeoTIFF", detail: "EPSG:4326, 4 Bands, 10m GSD" },
-              { step: 2, name: "Preprocess (Cloud Mask)", detail: "Threshold: < 10% (Pass)" },
-              { step: 3, name: "Calculate NDWI", detail: "(Green - NIR) / (Green + NIR)" },
-              { step: 4, name: "Apply Threshold", detail: "NDWI > 0.3" },
-              { step: 5, name: "Extract Polygons", detail: "Morphological closing applied" },
-              { step: 6, name: "Calculate Area", detail: "Spheroid area in km²" },
+              { step: 1, name: "Load GeoTIFF",              detail: "EPSG:4326, 4 Bands, 10m GSD" },
+              { step: 2, name: "Preprocess (Cloud Mask)",   detail: "Threshold: < 10% (Pass)" },
+              { step: 3, name: "Calculate NDWI",            detail: "(Green - NIR) / (Green + NIR)" },
+              { step: 4, name: "Apply Threshold",           detail: "NDWI > 0.3" },
+              { step: 5, name: "Extract Polygons",          detail: "Morphological closing applied" },
+              { step: 6, name: "Calculate Area",            detail: "Spheroid area in km²" },
               { step: 7, name: "Generate Qwen VLM Summary", detail: "Adapter: Explanation-v2" },
             ].map((s) => (
               <div key={s.step} className="flex gap-4 p-3 rounded-xl hover:bg-white/5 group transition-colors">
@@ -69,13 +86,16 @@ export default function PlanReview({ mode }: PlanReviewProps) {
       )}
 
       <div className="flex justify-end pt-4">
-        <Link href="/insights" className="relative rounded-full text-sm transition-transform duration-200 hover:scale-105 group">
+        <button
+          onClick={handleExecute}
+          className="relative rounded-full text-sm transition-transform duration-200 hover:scale-105 group"
+        >
           <span className="absolute rounded-full accent-gradient opacity-80 group-hover:opacity-100 transition-opacity duration-300" style={{ inset: "-2px" }} />
           <span className="relative z-10 flex items-center gap-2 px-8 py-3 rounded-full bg-bg text-text-primary font-medium">
             <Play className="w-4 h-4" />
             Execute Analysis
           </span>
-        </Link>
+        </button>
       </div>
     </div>
   );

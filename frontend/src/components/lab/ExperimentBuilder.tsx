@@ -1,8 +1,12 @@
 "use client";
 
-import { Map as MapIcon, Database, Box, SlidersHorizontal, ChevronRight } from "lucide-react";
+import { Map as MapIcon, Database, Box, SlidersHorizontal, ChevronRight, Loader2 } from "lucide-react";
 
-export default function ExperimentBuilder() {
+interface ExperimentBuilderProps {
+  onRunExperiment?: (overrides: Record<string, unknown>) => void;
+}
+
+export default function ExperimentBuilder({ onRunExperiment }: ExperimentBuilderProps) {
   return (
     <div className="bg-surface border border-stroke rounded-3xl p-6 flex flex-col h-full">
       <div className="flex items-center gap-2 mb-6">
@@ -48,7 +52,10 @@ export default function ExperimentBuilder() {
         </div>
       </div>
 
-      <button className="w-full relative rounded-full text-sm mt-6 group">
+      <button
+        onClick={() => onRunExperiment?.({ source: "experiment_builder", pipeline: "segformer_b4_sar_fusion" })}
+        className="w-full relative rounded-full text-sm mt-6 group"
+      >
         <span className="absolute rounded-full accent-gradient opacity-80 group-hover:opacity-100 transition-opacity duration-300" style={{ inset: "-1px" }} />
         <span className="relative z-10 block w-full px-6 py-3 rounded-full bg-bg text-text-primary font-medium text-center">
           Initialize Run

@@ -9,19 +9,21 @@ import BandMapper from "@/components/analyze/BandMapper";
 import ValidationGate from "@/components/analyze/ValidationGate";
 import QueryComposer from "@/components/analyze/QueryComposer";
 import PlanReview from "@/components/analyze/PlanReview";
+import { useMode } from "@/contexts/ModeContext";
 
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 
 export default function AnalyzePage() {
   const [step, setStep] = useState(1);
-  const [mode, setMode] = useState<"simple" | "scientific">("simple");
+  const { mode } = useMode();
   const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [runId, setRunId] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-bg">
       <div className="max-w-[900px] mx-auto px-6 md:px-10 lg:px-16 pt-12 pb-20">
-        
-        {/* Header & Mode Switcher */}
+
+        {/* Header */}
         <motion.div
           className="mb-10 px-2"
           initial={{ opacity: 0, y: 30 }}
@@ -38,15 +40,20 @@ export default function AnalyzePage() {
                 New <span className="font-display italic">analysis</span>
               </h1>
             </div>
+            {/* Current mode badge */}
+            <span className="text-xs px-3 py-1.5 rounded-full border border-stroke text-muted self-start md:self-end">
+              {mode === "scientific" ? "⚗️ Scientific" : "💬 Simple"} Mode
+            </span>
           </div>
         </motion.div>
 
-        {/* 4-Step Indicator */}
+        {/* Step Indicator */}
         <StepIndicator currentStep={step} />
 
-        {/* Step Content with Animation */}
+        {/* Step Content */}
         <div className="relative mt-8">
           <AnimatePresence mode="wait">
+
             {/* Step 1: Upload */}
             {step === 1 && (
               <motion.div
@@ -56,7 +63,7 @@ export default function AnalyzePage() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.4 }}
               >
-                <DropZone 
+                <DropZone
                   onFilesAccepted={(f) => {
                     setFiles(f);
                     setStep(2);
@@ -78,8 +85,7 @@ export default function AnalyzePage() {
                 <MetadataCards files={files} />
                 {files[0]?.metadata?.isGeoTiff && <BandMapper file={files[0]} />}
                 <ValidationGate onComplete={() => setStep(3)} />
-                
-                <button 
+                <button
                   onClick={() => setStep(1)}
                   className="mt-6 text-sm text-muted hover:text-text-primary underline decoration-stroke underline-offset-4 transition-colors"
                 >
@@ -97,9 +103,15 @@ export default function AnalyzePage() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.4 }}
               >
-                <QueryComposer mode={mode} onComplete={() => setStep(4)} />
-                
-                <button 
+                <QueryComposer
+                  mode={mode}
+                  files={files}
+                  onComplete={(id) => {
+                    setRunId(id);
+                    setStep(4);
+                  }}
+                />
+                <button
                   onClick={() => setStep(2)}
                   className="mt-6 text-sm text-muted hover:text-text-primary underline decoration-stroke underline-offset-4 transition-colors"
                 >
@@ -117,9 +129,8 @@ export default function AnalyzePage() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.4 }}
               >
-                <PlanReview mode={mode} />
-                
-                <button 
+                <PlanReview mode={mode} runId={runId} />
+                <button
                   onClick={() => setStep(3)}
                   className="mt-6 text-sm text-muted hover:text-text-primary underline decoration-stroke underline-offset-4 transition-colors"
                 >
@@ -127,9 +138,9 @@ export default function AnalyzePage() {
                 </button>
               </motion.div>
             )}
+
           </AnimatePresence>
         </div>
-
       </div>
     </div>
   );
