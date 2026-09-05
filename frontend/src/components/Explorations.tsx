@@ -1,4 +1,5 @@
-﻿import { useRef, useEffect, useState } from "react";
+"use client";
+import { useRef, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -254,3 +255,4 @@ const Explorations = () => {
 };
 
 export default Explorations;
+

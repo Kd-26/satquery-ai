@@ -1,4 +1,5 @@
-﻿import { useRef, useEffect } from "react";
+"use client";
+import { useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import gsap from "gsap";
 import Hls from "hls.js";
@@ -92,7 +93,7 @@ const Contact = () => {
             viewport={{ once: true, margin: "-100px" }}
           >
             <p className="text-base md:text-lg text-muted mb-8 max-w-md mx-auto">
-              Have a project in mind? I'm always open to new ideas and collaborations.
+              Have a project in mind? I&apos;m always open to new ideas and collaborations.
             </p>
             <motion.a
               href="mailto:hello@michaelsmith.com"
@@ -150,3 +151,4 @@ const Contact = () => {
 };
 
 export default Contact;
+

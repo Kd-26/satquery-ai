@@ -1,4 +1,4 @@
-﻿import { motion } from "framer-motion";
+import { motion } from "framer-motion";
 
 const projects = [
   { slug: "automotive-motion", title: "Automotive Motion", image: "/projects/wireframe.png", gradient: "from-violet-500 via-fuchsia-400/60 via-indigo-500/60 to-transparent" },
@@ -57,7 +57,7 @@ const SelectedWorks = () => {
               <span className="font-display italic">projects</span>
             </h2>
             <p className="text-muted text-sm md:text-base mt-3 max-w-md">
-              A selection of projects I've worked on, from concept to launch.
+              A selection of projects I&apos;ve worked on, from concept to launch.
             </p>
           </div>
           <ViewAllButton className="hidden md:inline-flex" />
