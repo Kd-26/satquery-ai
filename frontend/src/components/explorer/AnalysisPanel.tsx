@@ -8,30 +8,47 @@ interface AnalysisPanelProps {
   selectedRegionId: string | null;
 }
 
+interface RegionMetrics {
+  area_hectares: number;
+  confidence: number;
+  cloud_coverage_pct: number;
+  fusion_weight: number;
+  ndvi_mean: number;
+  vh_backscatter: number;
+}
+
 export function AnalysisPanel({ selectedRegionId }: AnalysisPanelProps) {
-  const [metrics, setMetrics] = useState<any>(null);
+  const [metrics, setMetrics] = useState<RegionMetrics | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedRegionId) {
       setMetrics(null);
+      setError(null);
       return;
     }
-    
+
+    let isMounted = true;
     setLoading(true);
-    // Real call would be to /api/v1/regions/${selectedRegionId}/metrics
-    // For this demonstration, we'll mock the fetch response
-    setTimeout(() => {
-      setMetrics({
-        area_hectares: 14.2,
-        confidence: 0.88,
-        cloud_coverage_pct: 5.2,
-        fusion_weight: 0.7,
-        ndvi_mean: 0.65,
-        vh_backscatter: -15.2
-      });
-      setLoading(false);
-    }, 500);
+    setError(null);
+
+    fetch(`/api/v1/regions/${selectedRegionId}/metrics`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || `Failed to load metrics (${res.status})`);
+        }
+        return res.json() as Promise<RegionMetrics>;
+      })
+      .then((data) => { if (isMounted) setMetrics(data); })
+      .catch((err) => {
+        console.error('[AnalysisPanel] Failed to fetch region metrics:', err);
+        if (isMounted) setError(err instanceof Error ? err.message : 'Unknown error');
+      })
+      .finally(() => { if (isMounted) setLoading(false); });
+
+    return () => { isMounted = false; };
   }, [selectedRegionId]);
 
   if (!selectedRegionId) {
@@ -50,6 +67,8 @@ export function AnalysisPanel({ selectedRegionId }: AnalysisPanelProps) {
       
       {loading ? (
         <p className="text-text-secondary">Loading region metrics...</p>
+      ) : error ? (
+        <p className="text-xs text-danger">{error}</p>
       ) : metrics ? (
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-4">

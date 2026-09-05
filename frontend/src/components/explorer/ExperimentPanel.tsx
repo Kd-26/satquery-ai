@@ -9,6 +9,11 @@ import { Button } from '../ui/Button';
 // this component should be imported in the parent layout using:
 // const ExperimentPanel = dynamic(() => import('./ExperimentPanel'), { ssr: false })
 
+interface ExperimentResult {
+  experiment_id: string;
+  masks: Array<{ id: string; color: string; label: string }>;
+}
+
 export default function ExperimentPanel({ runId }: { runId: string }) {
   const [threshold, setThreshold] = useState<number>(50);
   const [modelId, setModelId] = useState<string>('SEG_RGB_v1');
@@ -17,23 +22,45 @@ export default function ExperimentPanel({ runId }: { runId: string }) {
     'quality.compute_valid_mask': true
   });
   const [fusionWeight, setFusionWeight] = useState<number>(50);
-  const [experimentResult, setExperimentResult] = useState<any>(null);
+  const [experimentResult, setExperimentResult] = useState<ExperimentResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const toggleTool = (tool: string) => {
     setTools(prev => ({ ...prev, [tool]: !prev[tool] }));
   };
 
-  const handleRunExperiment = () => {
+  const handleRunExperiment = async () => {
     setIsRunning(true);
-    // Mock API call to POST /api/v1/runs/{run_id}/experiments
-    setTimeout(() => {
-      setExperimentResult({
-        experiment_id: 'exp-1234',
-        masks: [{ id: 'new_water', color: '#00f', label: 'Water (Exp)' }]
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/v1/runs/${runId}/experiments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parameter_overrides: {
+            model_id: modelId,
+            segmentation_threshold: threshold / 100,
+            fusion_weight_override: { optical: fusionWeight / 100, sar: (100 - fusionWeight) / 100 },
+            tool_toggle: tools,
+          },
+        }),
       });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `Experiment failed (${res.status})`);
+      }
+
+      const data = await res.json() as ExperimentResult;
+      setExperimentResult(data);
+    } catch (err) {
+      console.error('[ExperimentPanel] Failed to POST experiment:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
       setIsRunning(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -91,6 +118,7 @@ export default function ExperimentPanel({ runId }: { runId: string }) {
           </div>
           
           <div className="mt-auto pt-4 border-t border-border-primary">
+            {error && <p className="text-xs text-danger mb-2">{error}</p>}
             <Button onClick={handleRunExperiment} className="w-full" disabled={isRunning}>
               {isRunning ? 'Running DAG...' : 'Run Experiment'}
             </Button>
