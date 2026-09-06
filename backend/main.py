@@ -2,18 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic_settings import BaseSettings
 
-# ---------------------------------------------------------------------------
-# Settings — DATABASE_URL MUST be provided via .env; no hardcoded credentials.
-# ---------------------------------------------------------------------------
-class Settings(BaseSettings):
-    app_name: str = "SatQuery AI"
-    database_url: str  # Required — set in .env (see .env.example)
-    cors_origins: list[str] = ["http://localhost:3000"]
-
-    class Config:
-        env_file = ".env"
-
-settings = Settings()
+from backend.core.config import settings, Settings
 
 # ---------------------------------------------------------------------------
 # Application
