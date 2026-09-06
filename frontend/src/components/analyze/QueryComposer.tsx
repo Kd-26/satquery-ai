@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Send, Sparkles, Lightbulb, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { submitQuery, linkImagePair } from "@/lib/api";
+import { useJobsStore } from "@/lib/jobsStore";
 import type { UploadedFile } from "@/components/analyze/DropZone";
 
 interface QueryComposerProps {
@@ -45,6 +46,7 @@ export default function QueryComposer({ onComplete, mode, files = [] }: QueryCom
       }
 
       const res = await submitQuery({ query: query.trim(), image_ids: imageIds });
+      useJobsStore.getState().startTracking(res.run_id, query.trim().slice(0, 60));
       onComplete(res.run_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Query submission failed");

@@ -10,8 +10,8 @@ import PairComparison from "@/components/results/PairComparison";
 import EvidencePanel from "@/components/results/EvidencePanel";
 import MeasurementTable from "@/components/results/MeasurementTable";
 import ConfidenceBar from "@/components/results/ConfidenceBar";
-import { Download, Share2, Printer, CheckCircle, Loader2, AlertCircle } from "lucide-react";
-import { getRun, getRunGraph, downloadRunExport, type RunResult, type GraphData, type ExportFormat } from "@/lib/api";
+import { Download, Share2, Printer, CheckCircle, Loader2, AlertCircle, Ban, XCircle } from "lucide-react";
+import { getRun, getRunGraph, downloadRunExport, cancelRun, type RunResult, type GraphData, type ExportFormat } from "@/lib/api";
 
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 const POLL_INTERVAL = 2500;
@@ -27,37 +27,54 @@ function InsightsContent() {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(!!runId);
   const [error, setError] = useState<string | null>(null);
+  const [wasCancelled, setWasCancelled] = useState(false);
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     if (!runId) return;
-    let cancelled = false;
+    let stopped = false;
 
     const poll = async () => {
       try {
         const result = await getRun(runId);
-        if (cancelled) return;
+        if (stopped) return;
         setRun(result);
         if (result.status === "done") {
           setLoading(false);
           getRunGraph(runId)
-            .then((g) => { if (!cancelled) setGraph(g); })
+            .then((g) => { if (!stopped) setGraph(g); })
             .catch(() => {});
         } else if (result.status === "failed") {
           setLoading(false);
-          setError("Analysis run failed. Please try again.");
+          setError(result.error ?? "Analysis run failed. Please try again.");
+        } else if (result.status === "cancelled") {
+          setLoading(false);
+          setWasCancelled(true);
         } else {
           setTimeout(poll, POLL_INTERVAL);
         }
       } catch (e) {
-        if (cancelled) return;
+        if (stopped) return;
         setError(e instanceof Error ? e.message : "Failed to fetch run status");
         setLoading(false);
       }
     };
 
     poll();
-    return () => { cancelled = true; };
+    return () => { stopped = true; };
+  }, [runId]);
+
+  const handleCancel = useCallback(async () => {
+    if (!runId) return;
+    setCancelling(true);
+    try {
+      await cancelRun(runId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to cancel run");
+    } finally {
+      setCancelling(false);
+    }
   }, [runId]);
 
   const handleExport = useCallback(async (format: ExportFormat) => {
@@ -93,11 +110,19 @@ function InsightsContent() {
                 <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
               ) : error ? (
                 <AlertCircle className="w-4 h-4 text-red-400" />
+              ) : wasCancelled ? (
+                <Ban className="w-4 h-4 text-muted" />
               ) : (
                 <CheckCircle className="w-4 h-4 text-green-400" />
               )}
               <span className="text-xs text-muted uppercase tracking-[0.3em]">
-                {loading ? `Running… ${run?.progress ?? 0}%` : error ? "Analysis Failed" : "Analysis Complete"}
+                {loading
+                  ? `${run?.stage ? run.stage.replace(/_/g, " ") : "Running"}… ${run?.progress ?? 0}%`
+                  : error
+                  ? "Analysis Failed"
+                  : wasCancelled
+                  ? "Analysis Cancelled"
+                  : "Analysis Complete"}
               </span>
             </div>
             <h1 className="text-3xl md:text-4xl text-text-primary leading-[1.1]">
@@ -109,6 +134,16 @@ function InsightsContent() {
           </div>
 
           <div className="flex items-center gap-3 mt-4 md:mt-0">
+            {loading && (
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="flex items-center gap-2 px-4 py-2 rounded-full border border-red-500/30 text-sm font-medium text-red-400/90 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {cancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                Cancel
+              </button>
+            )}
             <button className="flex items-center gap-2 px-4 py-2 rounded-full border border-stroke text-sm font-medium text-muted hover:text-text-primary hover:bg-white/5 transition-colors">
               <Share2 className="w-4 h-4" />Share
             </button>
@@ -148,6 +183,12 @@ function InsightsContent() {
         {error && (
           <div className="mb-4 flex items-center gap-2 text-red-400 bg-red-500/10 border border-red-500/20 rounded-2xl px-4 py-3 text-sm">
             <AlertCircle className="w-4 h-4 shrink-0" />{error}
+          </div>
+        )}
+
+        {wasCancelled && !error && (
+          <div className="mb-4 flex items-center gap-2 text-muted bg-white/5 border border-stroke rounded-2xl px-4 py-3 text-sm">
+            <Ban className="w-4 h-4 shrink-0" />Run was cancelled before completion.
           </div>
         )}
 

@@ -64,16 +64,29 @@ export interface AnswerObj {
   technical: string;
 }
 
+export type RunStatusValue = "pending" | "running" | "done" | "failed" | "cancelled";
+
 export interface RunResult {
   run_id: string;
-  status: "pending" | "running" | "done" | "failed";
+  status: RunStatusValue;
   progress: number;
+  stage?: string;
+  error?: string;
   answer?: string;
   answer_obj?: AnswerObj;
   claims?: Claim[];
   limitations?: string[];
   traces?: TraceStep[];
   image_ids?: string[];
+}
+
+export interface RunEventPayload {
+  run_id: string;
+  status: RunStatusValue;
+  stage: string;
+  progress: number;
+  error?: string | null;
+  updated_at: number;
 }
 
 export interface TileInfo {
@@ -206,10 +219,45 @@ export async function pollRun(
   while (Date.now() < deadline) {
     const result = await getRun(runId);
     onUpdate?.(result);
-    if (result.status === "done" || result.status === "failed") return result;
+    if (result.status === "done" || result.status === "failed" || result.status === "cancelled") {
+      return result;
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   throw new Error("Run polling timed out");
+}
+
+/**
+ * Requests cancellation of a running (or pending) run. Cancellation is
+ * cooperative on the backend — it's checked between pipeline stages, so it
+ * may take a moment to take effect.
+ */
+export async function cancelRun(runId: string): Promise<{ status: string; run_id: string }> {
+  return apiFetch(`/api/v1/runs/${runId}/cancel`, { method: "POST" });
+}
+
+/**
+ * Subscribes to live stage-transition events for a run via Server-Sent
+ * Events. Returns an unsubscribe function. Automatically stops once the
+ * backend closes the stream (run reached a terminal state).
+ */
+export function subscribeRunEvents(
+  runId: string,
+  onEvent: (payload: RunEventPayload) => void,
+  onError?: (err: Event) => void
+): () => void {
+  const es = new EventSource(`${BASE}/api/v1/runs/${runId}/events`);
+  es.onmessage = (e) => {
+    try {
+      onEvent(JSON.parse(e.data) as RunEventPayload);
+    } catch {
+      // Ignore malformed frames rather than crashing the subscriber.
+    }
+  };
+  es.onerror = (err) => {
+    onError?.(err);
+  };
+  return () => es.close();
 }
 
 /**

@@ -1,20 +1,38 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Activity, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { X, Activity, CheckCircle2, AlertTriangle, Loader2, Ban, XCircle } from "lucide-react";
+import { useJobsStore } from "@/lib/jobsStore";
 
 interface JobCentreProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const MOCK_JOBS = [
-  { id: 1, title: "Optical-SAR Fusion (Region 4)", status: "running",   progress: 65, time: "2m 14s" },
-  { id: 2, title: "Sentinel-2 Ingestion (Coastal)", status: "completed", time: "14s ago" },
-  { id: 3, title: "Cloud Mask Generation",           status: "failed",    error: "NoData mask exceeded threshold" },
-];
+const STAGE_LABELS: Record<string, string> = {
+  queued: "Queued",
+  ingesting: "Ingesting",
+  planning: "Planning (VLM)",
+  validating: "Validating",
+  building_evidence: "Building Evidence",
+  vlm_synthesis: "VLM Synthesis",
+  verifying: "Verifying Answer",
+  complete: "Complete",
+  cancelled: "Cancelled",
+};
+
+function stageLabel(stage: string): string {
+  if (stage.startsWith("executing_tool:")) {
+    return `Executing Tool: ${stage.split(":")[1]}`;
+  }
+  return STAGE_LABELS[stage] ?? stage;
+}
 
 export default function JobCentre({ isOpen, onClose }: JobCentreProps) {
+  const jobs = useJobsStore((s) => s.jobs);
+  const cancelJob = useJobsStore((s) => s.cancelJob);
+  const jobList = Object.values(jobs).sort((a, b) => b.createdAt - a.createdAt);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -48,37 +66,67 @@ export default function JobCentre({ isOpen, onClose }: JobCentreProps) {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {MOCK_JOBS.map((job) => (
-                <div key={job.id} className="bg-surface border border-stroke rounded-2xl p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <h4 className="text-sm font-medium text-text-primary leading-tight pr-4">{job.title}</h4>
-                    {job.status === "running" && <Loader2 className="w-4 h-4 text-sky-400 animate-spin shrink-0" />}
-                    {job.status === "completed" && <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />}
-                    {job.status === "failed" && <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />}
-                  </div>
-
-                  {job.status === "running" && "progress" in job && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-muted">
-                        <span>Processing workflow...</span>
-                        <span>{job.progress}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-stroke/50 rounded-full overflow-hidden">
-                        <div className="h-full bg-sky-400 rounded-full" style={{ width: `${job.progress}%` }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {job.status === "failed" && "error" in job && (
-                    <p className="text-xs text-red-400/80 bg-red-500/10 p-2 rounded-lg">{job.error}</p>
-                  )}
-
-                  <div className="mt-3 flex items-center justify-between text-[10px] text-muted uppercase tracking-wider">
-                    <span>{job.status}</span>
-                    <span>{"time" in job ? job.time : ""}</span>
-                  </div>
+              {jobList.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-full text-muted gap-2 py-20">
+                  <Activity className="w-8 h-8 opacity-30" />
+                  <p className="text-sm">No jobs yet — submit a query to see it here.</p>
                 </div>
-              ))}
+              )}
+
+              {jobList.map((job) => {
+                const isActive = job.status === "pending" || job.status === "running";
+                return (
+                  <div key={job.runId} className="bg-surface border border-stroke rounded-2xl p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <h4 className="text-sm font-medium text-text-primary leading-tight pr-4 truncate">
+                        {job.title}
+                      </h4>
+                      {job.status === "running" && <Loader2 className="w-4 h-4 text-sky-400 animate-spin shrink-0" />}
+                      {job.status === "pending" && <Loader2 className="w-4 h-4 text-muted animate-spin shrink-0" />}
+                      {job.status === "done" && <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />}
+                      {job.status === "failed" && <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />}
+                      {job.status === "cancelled" && <Ban className="w-4 h-4 text-muted shrink-0" />}
+                    </div>
+
+                    {isActive && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs text-muted">
+                          <span>{stageLabel(job.stage)}</span>
+                          <span>{job.progress}%</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-stroke/50 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-sky-400 rounded-full transition-all duration-500"
+                            style={{ width: `${job.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {job.status === "failed" && job.error && (
+                      <p className="text-xs text-red-400/80 bg-red-500/10 p-2 rounded-lg">{job.error}</p>
+                    )}
+
+                    {job.status === "cancelled" && (
+                      <p className="text-xs text-muted bg-white/5 p-2 rounded-lg">Cancelled by user.</p>
+                    )}
+
+                    <div className="mt-3 flex items-center justify-between text-[10px] text-muted uppercase tracking-wider">
+                      <span>{job.status}</span>
+                      {isActive ? (
+                        <button
+                          onClick={() => cancelJob(job.runId)}
+                          className="flex items-center gap-1 text-red-400/80 hover:text-red-400 normal-case tracking-normal transition-colors"
+                        >
+                          <XCircle className="w-3 h-3" /> Cancel
+                        </button>
+                      ) : (
+                        <span className="font-mono">{job.runId.slice(0, 8)}…</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </motion.div>
         </>
