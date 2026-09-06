@@ -5,6 +5,11 @@ from typing import List, Dict, Any
 
 router = APIRouter(tags=["query"])
 
+# In-memory run -> image_id linkage, so the results workspace (MapCanvas/TiTiler)
+# knows which rasters to render for a given run. Not persisted across restarts —
+# a real run-state store belongs to the executor/DB work tracked separately.
+_RUN_IMAGES: Dict[str, List[str]] = {}
+
 class QueryRequest(BaseModel):
     query: str
     image_ids: List[str]
@@ -16,6 +21,7 @@ async def submit_query(request: QueryRequest):
     """
     # Mock behavior until execution pipeline is fully wired
     run_id = str(uuid.uuid4())
+    _RUN_IMAGES[run_id] = request.image_ids
     return {"status": "accepted", "run_id": run_id}
 
 
@@ -29,6 +35,7 @@ async def get_run_status(run_id: uuid.UUID):
         "run_id": str(run_id),
         "status": "done",
         "progress": 100,
+        "image_ids": _RUN_IMAGES.get(str(run_id), []),
         "answer": "Detected 45,000 m² of built-up urban expansion with 92% confidence. Sentinel-2 NDVI spectral index reveals a 31% drop in canopy cover in quadrant NW-4.",
         "answer_obj": {
             "plain_language": "Detected 45,000 m² of built-up urban expansion with 92% confidence. Sentinel-2 NDVI spectral index reveals a 31% drop in canopy cover in quadrant NW-4.",

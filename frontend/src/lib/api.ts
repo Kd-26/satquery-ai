@@ -73,6 +73,14 @@ export interface RunResult {
   claims?: Claim[];
   limitations?: string[];
   traces?: TraceStep[];
+  image_ids?: string[];
+}
+
+export interface TileInfo {
+  image_id: string;
+  tile_url_template: string;
+  bounds: [number, number, number, number]; // [west, south, east, north] in EPSG:4326
+  titiler_available: boolean;
 }
 
 export interface GraphNode {
@@ -209,6 +217,23 @@ export async function pollRun(
  */
 export async function getRunGraph(runId: string): Promise<GraphData> {
   return apiFetch<GraphData>(`/api/v1/runs/${runId}/graph`);
+}
+
+// ─── Tiles (MapLibre GL / TiTiler) ──────────────────────────────────────────
+
+/**
+ * Resolve an image_id to a TiTiler tile URL template + geographic bounds,
+ * so MapLibre GL can add it as a raster source. The backend resolves the
+ * filesystem path server-side — the frontend never sees or guesses it.
+ * Throws (via apiFetch) if the raster is missing or has no verified CRS.
+ */
+export async function getImageTileInfo(imageId: string): Promise<TileInfo> {
+  const info = await apiFetch<TileInfo>(`/api/v1/tiles/resolve/${imageId}`);
+  return {
+    ...info,
+    // Tile paths returned by the backend are relative to the API root.
+    tile_url_template: `${BASE}${info.tile_url_template}`,
+  };
 }
 
 // ─── Exports ─────────────────────────────────────────────────────────────────

@@ -182,7 +182,7 @@ function InsightsContent() {
               ))}
             </div>
             <div className="relative flex-1 rounded-3xl overflow-hidden border border-stroke min-h-[400px]">
-              <MapCanvas activeTab={activeTab} />
+              <MapCanvas activeTab={activeTab} imageIds={run?.image_ids} />
               <LayerManager />
               {activeTab === "Change" && <PairComparison activeMode={compareMode} onModeChange={setCompareMode} />}
             </div>
