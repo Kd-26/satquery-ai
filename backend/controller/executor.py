@@ -183,8 +183,14 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
     profile_t1 = resolve_metadata(image_t1)
     profile_t2 = resolve_metadata(image_t2)
     
-    rt1 = read_bands(str(list(Path(f"./artifacts/{image_t1}").glob("original.*"))[0]))
-    rt2 = read_bands(str(list(Path(f"./artifacts/{image_t2}").glob("original.*"))[0]))
+    def _resolve_artifact(image_id: str) -> str:
+        matches = list(Path(f"./artifacts/{image_id}").glob("original.*"))
+        if not matches:
+            raise FileNotFoundError(f"Artifact for image {image_id} not found.")
+        return str(matches[0])
+        
+    rt1 = read_bands(_resolve_artifact(image_t1))
+    rt2 = read_bands(_resolve_artifact(image_t2))
     
     vm_t1 = compute_valid_mask(rt1, nodata_value=profile_t1.nodata_value)
     vm_t2 = compute_valid_mask(rt2, nodata_value=profile_t2.nodata_value)
@@ -282,8 +288,14 @@ def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult) -
     from backend.scientific_tools.reliability import estimate_optical_reliability, estimate_sar_reliability
     from backend.scientific_tools.fuse import fuse_evidence
     
-    rt_opt = read_bands(str(list(Path(f"./artifacts/{image_opt}").glob("original.*"))[0]))
-    rt_sar = read_bands(str(list(Path(f"./artifacts/{image_sar}").glob("original.*"))[0]))
+    def _resolve_artifact(image_id: str) -> str:
+        matches = list(Path(f"./artifacts/{image_id}").glob("original.*"))
+        if not matches:
+            raise FileNotFoundError(f"Artifact for image {image_id} not found.")
+        return str(matches[0])
+        
+    rt_opt = read_bands(_resolve_artifact(image_opt))
+    rt_sar = read_bands(_resolve_artifact(image_sar))
     
     q_opt = estimate_optical_reliability(rt_opt, cloud_mask=None)
     q_sar = estimate_sar_reliability(rt_sar, layover_shadow_mask=None)
