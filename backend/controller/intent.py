@@ -61,6 +61,22 @@ def classify_intent(query: str, input_profiles: List[InputProfile]) -> Dict[str,
         cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
         parsed = json.loads(cleaned)
         if isinstance(parsed, dict) and "workflow_hint" in parsed:
+            num_images = len(input_profiles)
+            sar_count = sum(
+                1 for p in input_profiles
+                if (p.sensor_family or "").lower() in ("sentinel-1", "risat")
+                or (p.sensor_type or "").lower() == "sar"
+                or any(b in ("VV", "VH") for b in p.band_identities)
+            )
+            opt_count = num_images - sar_count
+
+            if num_images <= 1:
+                parsed["workflow_hint"] = "single"
+            elif sar_count >= 1 and opt_count >= 1:
+                parsed["workflow_hint"] = "crossmodal"
+            elif num_images >= 2 and parsed.get("workflow_hint") == "crossmodal" and (sar_count == 0 or opt_count == 0):
+                parsed["workflow_hint"] = "temporal"
+
             logger.info("Intent classified: workflow=%s, type=%s", parsed.get("workflow_hint"), parsed.get("analysis_type"))
             return parsed
     except Exception as e:
@@ -68,12 +84,15 @@ def classify_intent(query: str, input_profiles: List[InputProfile]) -> Dict[str,
 
     # Deterministic heuristic fallback
     num_images = len(input_profiles)
-    modalities = {
-        "sar" if p.sensor_family in ("sentinel-1", "risat") else "optical"
-        for p in input_profiles
-    }
+    sar_count = sum(
+        1 for p in input_profiles
+        if (p.sensor_family or "").lower() in ("sentinel-1", "risat")
+        or (p.sensor_type or "").lower() == "sar"
+        or any(b in ("VV", "VH") for b in p.band_identities)
+    )
+    opt_count = num_images - sar_count
 
-    if num_images >= 2 and len(modalities) > 1:
+    if num_images >= 2 and sar_count >= 1 and opt_count >= 1:
         workflow = "crossmodal"
     elif num_images >= 2:
         workflow = "temporal"

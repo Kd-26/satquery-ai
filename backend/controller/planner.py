@@ -194,6 +194,9 @@ def _build_planner_prompt(query: str, input_profiles: list[InputProfile]) -> str
         f"CAPABILITY REGISTRY (ONLY use model IDs from this list):\n{json.dumps(registry_summary, indent=2)}\n\n"
         "RULES:\n"
         "1. Follow the INTENT CLASSIFICATION HINTS for workflow type and target classes unless contradicted by profiles.\n"
+        "   - If only 1 image profile is available: workflow MUST be 'single'. Never choose 'temporal' or 'crossmodal' for 1 image.\n"
+        "   - If 2 images are available and one is SAR and the other is Optical: workflow MUST be 'crossmodal', and required_models MUST include both an optical model (e.g. 'SEG_RGB_v1') and a SAR model (e.g. 'SEG_SAR_VV_VH_v1').\n"
+        "   - If 2 images of the same modality (both optical or both SAR) are available at different dates: workflow is 'temporal'.\n"
         "2. Select required_models ONLY from the CAPABILITY REGISTRY above. Never invent a model id.\n"
         "3. target_classes must only contain class names supported by ALL required_models.\n"
         "4. For optional_tools use format 'compute_spectral_index:INDEX_NAME' (INDEX_NAME = NDVI, NDWI, etc.).\n"
@@ -282,7 +285,14 @@ def replan(
         "Your previous plan was REJECTED by the validation engine.\n\n"
         f"REJECTED PLAN:\n{rejected_plan.model_dump_json(indent=2)}\n\n"
         f"REJECTION REASONS:\n{error_lines}\n\n"
-        "Fix every rejection reason. Call create_execution_plan with the corrected plan."
+        "REPLANNING RULES:\n"
+        "1. Fix every rejection reason listed above.\n"
+        "2. If the rejection was related to Temporal or Cross-modal workflow requiring at least 2 images:\n"
+        "   - Switch workflow to 'single' with 1 primary image and matching model.\n"
+        "3. If the rejection was related to modality mismatch or incompatible pair under temporal workflow:\n"
+        "   - If one image is SAR and the other is Optical, switch workflow to 'crossmodal' and include both optical and SAR models (e.g. ['SEG_RGB_v1', 'SEG_SAR_VV_VH_v1']).\n"
+        "   - Otherwise, switch workflow to 'single' to analyze the primary image so the pipeline succeeds.\n"
+        "4. Call create_execution_plan with the corrected plan."
     )
 
     logger.info("Replanning with %d validation errors.", len(rejection_errors))

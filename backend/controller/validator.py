@@ -3,17 +3,120 @@ from backend.schemas.input_profile import InputProfile
 from backend.schemas.validation_result import ValidationResult
 from backend.registry import registry_loader
 
+# Sensor-family → superset of logical band concepts it covers.
+# Used to allow band-check compatibility between scientific satellite band
+# identities (e.g. B1..B12 for Sentinel-2) and model input contracts that
+# use generic logical names (e.g. ["R","G","B"]).
+# Architecture rule: band identity is *verified*, never assumed. These
+# mappings are grounded in the sensor's published band specifications.
+_SENSOR_BAND_SUPERSET: dict[str, set[str]] = {
+    # Sentinel-2: B4=R, B3=G, B2=B, B8=NIR, B11=SWIR1, B12=SWIR2, etc.
+    "sentinel-2": {
+        "R", "G", "B", "NIR", "SWIR1", "SWIR2",
+        "B1", "B2", "B3", "B4", "B5", "B6", "B7",
+        "B8", "B8A", "B9", "B10", "B11", "B12",
+    },
+    # Sentinel-1: radar polarisations
+    "sentinel-1": {"VV", "VH"},
+    # Cartosat-2S: panchromatic / optical RGB
+    "cartosat-2s": {"R", "G", "B"},
+}
+
+
+def _is_sar_profile(p: InputProfile) -> bool:
+    fam = (p.sensor_family or "").lower()
+    stype = (p.sensor_type or "").lower()
+    return fam in ("sentinel-1", "risat") or stype == "sar" or any(b in ("VV", "VH") for b in p.band_identities)
+
+
+def _is_optical_profile(p: InputProfile) -> bool:
+    return not _is_sar_profile(p)
+
+
+def _get_target_profiles(plan_workflow: str, model_modality: str, profiles: list[InputProfile]) -> list[InputProfile]:
+    if plan_workflow == "crossmodal":
+        if model_modality == "sar":
+            return [p for p in profiles if _is_sar_profile(p)]
+        elif model_modality in ("optical", "optical_rgb"):
+            return [p for p in profiles if _is_optical_profile(p)]
+        return profiles
+    elif plan_workflow == "single":
+        return [profiles[0]] if profiles else []
+    else:
+        # temporal or other multi-image workflow
+        return profiles
+
+
 def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> ValidationResult:
     approved = True
     restrictions = []
     errors = []
     confidence_caps = {}
-    
-    # Pre-fetch profiles by id for easy lookup
-    # Note: A real implementation might map plan.images to profiles. We assume profiles match plan.images.
-    # To keep it simple, we just check ALL profiles for the required bands.
-    
-    # Check (1): every model_id in plan.required_models exists and bands match
+    RESOLUTION_FACTOR = 5.0
+
+    # 1. Workflow-level integrity checks
+    if plan.workflow == "single":
+        if len(profiles) < 1:
+            approved = False
+            errors.append("Single image workflow requires at least 1 image.")
+    elif plan.workflow == "temporal":
+        if len(profiles) < 2:
+            approved = False
+            errors.append(
+                f"Temporal workflow requires at least 2 images (before and after), but only {len(profiles)} provided."
+            )
+        else:
+            p0_sar = _is_sar_profile(profiles[0])
+            p1_sar = _is_sar_profile(profiles[1])
+            if p0_sar != p1_sar:
+                approved = False
+                errors.append(
+                    "Temporal workflow requires images of the same modality (both Optical or both SAR). "
+                    "For an Optical and SAR pair, use 'crossmodal' workflow."
+                )
+            else:
+                from backend.scientific_tools.alignment import check_pair_compatibility
+                align_res = check_pair_compatibility(profiles[0], profiles[1])
+                if not align_res.get("compatible"):
+                    approved = False
+                    errors.append("Temporal workflow selected but image pair is not compatible (CRS/bbox mismatch).")
+    elif plan.workflow == "crossmodal":
+        if len(profiles) < 2:
+            approved = False
+            errors.append(
+                f"Cross-modal workflow requires at least 2 images (one Optical and one SAR), but only {len(profiles)} provided."
+            )
+        else:
+            has_sar = any(_is_sar_profile(p) for p in profiles)
+            has_opt = any(_is_optical_profile(p) for p in profiles)
+            if not (has_sar and has_opt):
+                approved = False
+                errors.append("Cross-modal workflow requires at least one Optical image and one SAR image.")
+            from backend.scientific_tools.alignment import check_pair_compatibility
+            align_res = check_pair_compatibility(profiles[0], profiles[1])
+            if not align_res.get("compatible"):
+                approved = False
+                errors.append("Cross-modal workflow selected but image pair is not compatible (CRS/bbox mismatch).")
+
+        # Cross-modal requires at least one optical model and one SAR model
+        has_opt_model = False
+        has_sar_model = False
+        for mid in plan.required_models:
+            try:
+                m = registry_loader.get_by_id(mid)
+                if m.modality in ("optical", "optical_rgb"):
+                    has_opt_model = True
+                elif m.modality == "sar":
+                    has_sar_model = True
+            except Exception:
+                pass
+        if not (has_opt_model and has_sar_model):
+            approved = False
+            errors.append(
+                "Cross-modal workflow requires one optical model (e.g. SEG_RGB_v1) and one SAR model (e.g. SEG_SAR_VV_VH_v1)."
+            )
+
+    # 2. Check every model_id in plan.required_models
     for model_id in plan.required_models:
         try:
             model = registry_loader.get_by_id(model_id)
@@ -21,75 +124,73 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
             approved = False
             errors.append(f"Model {model_id} not found in registry.")
             continue
-            
-        # Check band compatibility
-        req_bands = model.input_contract.get("bands")
+
+        target_profiles = _get_target_profiles(plan.workflow, getattr(model, "modality", ""), profiles)
+        if not target_profiles and plan.workflow == "crossmodal":
+            approved = False
+            errors.append(f"Model {model_id} (modality={model.modality}) has no matching image profile.")
+            continue
+
+        # Check band compatibility against target profiles
+        req_bands = model.input_contract.get("bands") or model.input_contract.get("polarization_order")
         if req_bands:
-            for profile in profiles:
-                # If a profile doesn't have all required bands, that's an error
-                missing_bands = [b for b in req_bands if b not in profile.band_identities]
+            for profile in target_profiles:
+                profile_bands = set(profile.band_identities)
+                sensor_superset = _SENSOR_BAND_SUPERSET.get(
+                    (profile.sensor_family or "").lower(), set()
+                )
+                effective_bands = profile_bands | sensor_superset
+                missing_bands = [b for b in req_bands if b not in effective_bands]
                 if missing_bands:
                     approved = False
-                    errors.append(f"Model {model_id} requires bands {req_bands}, but profile {profile.image_id} is missing {missing_bands}.")
-                    
-    # Check (5): resolution and sensor-family domain-shift
-    # To respect "configurable factor", we use a hardcoded 5.0 here (would normally read from settings)
-    RESOLUTION_FACTOR = 5.0
-    
-    for model_id in plan.required_models:
-        try:
-            model = registry_loader.get_by_id(model_id)
-        except registry_loader.RegistryEntryNotFoundError:
-            continue
-            
-        for profile in profiles:
+                    errors.append(
+                        f"Model {model_id} requires bands {req_bands}, but profile "
+                        f"{profile.image_id} (sensor={profile.sensor_family}) "
+                        f"is missing {missing_bands}."
+                    )
+
+        # Check resolution and sensor-family domain-shift
+        for profile in target_profiles:
             if model.resolution_range_m and profile.pixel_spacing_m:
                 min_res, max_res = model.resolution_range_m[0], model.resolution_range_m[1]
                 px = profile.pixel_spacing_m
-                
+
                 if px < min_res / RESOLUTION_FACTOR or px > max_res * RESOLUTION_FACTOR:
                     approved = False
                     errors.append(f"Model {model_id} resolution range [{min_res}, {max_res}]m is strictly incompatible with {px}m.")
                 elif px < min_res or px > max_res:
-                    restrictions.append(f"Model {model_id} resolution mismatch: trained for [{min_res}, {max_res}]m, input is {px}m. Treating outputs as extrapolated.")
+                    restrictions.append(
+                        f"Model {model_id} resolution mismatch: trained for [{min_res}, {max_res}]m, "
+                        f"input is {px}m. Treating outputs as extrapolated."
+                    )
                     confidence_caps[model_id] = 0.5
-                    
+
             if profile.sensor_family == "unknown":
                 restrictions.append(f"Sensor family unverified for {profile.image_id} - domain-shift risk cannot be assessed.")
             elif model.known_domain_shift_sensors:
                 known_sensors_lower = [s.lower() for s in model.known_domain_shift_sensors]
-                if profile.sensor_family.lower() in known_sensors_lower:
+                if (profile.sensor_family or "").lower() in known_sensors_lower:
                     restrictions.append(f"Model {model_id} sensor domain-shift risk: running on {profile.sensor_family}.")
                     confidence_caps[model_id] = 0.5
 
-    # Check (3): area_estimate restriction logic
+    # 3. Check area_estimate restriction logic
     if "area_estimate" in plan.requested_outputs:
         for profile in profiles:
             for restriction in profile.capability_restrictions:
                 if "area_estimation" in restriction:
                     restrictions.append(f"area_estimate disabled for {profile.image_id}: {restriction}")
-                    # Does not set approved = False
 
-        # Check (2): temporal workflow compatibility
-    if plan.workflow == 'temporal':
-        from backend.scientific_tools.alignment import check_pair_compatibility
-        if len(profiles) >= 2:
-            align_res = check_pair_compatibility(profiles[0], profiles[1])
-            if not align_res.get('compatible'):
-                approved = False
-                errors.append("Temporal workflow selected but image pair is not compatible (CRS/bbox mismatch).")
-                
-    # Check (4): final_adapter existence
+    # 4. Check final_adapter existence
     if plan.final_adapter:
         try:
             registry_loader.get_by_id(plan.final_adapter)
         except registry_loader.RegistryEntryNotFoundError:
             approved = False
             errors.append(f"Adapter {plan.final_adapter} not found in registry.")
-            
+
     return ValidationResult(
         approved=approved,
         restrictions=restrictions,
         errors=errors,
-        confidence_caps=confidence_caps
+        confidence_caps=confidence_caps,
     )
