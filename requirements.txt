@@ -14,3 +14,4 @@ httpx
 nbformat
 pystac
 numpy
+requests
