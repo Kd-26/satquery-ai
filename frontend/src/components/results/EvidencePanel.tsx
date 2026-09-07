@@ -27,17 +27,19 @@ export default function EvidencePanel({ run, graph, loading }: EvidencePanelProp
   const nodes = graph?.nodes ?? [];
 
   return (
-    <div className="flex-1 overflow-y-auto space-y-6 pb-20 scrollbar-hide">
+    <div className="flex flex-col space-y-6">
 
       {/* 1. Direct Answer */}
       {answer && (
-        <section className="bg-surface border border-stroke rounded-3xl p-5 md:p-6 relative overflow-hidden">
+        <section className="bg-surface border border-stroke rounded-3xl p-5 md:p-6 relative overflow-hidden shrink-0">
           <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/10 rounded-bl-full blur-3xl pointer-events-none" />
           <div className="flex items-center gap-2 text-sky-400 mb-3">
             <Brain className="w-4 h-4" />
             <h3 className="text-xs uppercase tracking-widest font-medium">Direct Answer</h3>
           </div>
-          <p className="text-text-primary text-base leading-relaxed">{answer}</p>
+          <div className="text-text-primary text-sm leading-relaxed whitespace-pre-wrap font-sans">
+            {answer.replace(/### Verified/g, '\n### Verified')}
+          </div>
         </section>
       )}
 
