@@ -88,13 +88,15 @@ database-volumes/
 /data/**/*.tar.gz
 
 # Generated artifacts
-/artifacts/masks/*
+/artifacts/*
+!/artifacts/README.md
+!/artifacts/masks/
 !/artifacts/masks/.gitkeep
-/artifacts/vectors/*
+!/artifacts/vectors/
 !/artifacts/vectors/.gitkeep
-/artifacts/reports/*
+!/artifacts/reports/
 !/artifacts/reports/.gitkeep
-/artifacts/audit_logs/*
+!/artifacts/audit_logs/
 !/artifacts/audit_logs/.gitkeep
 
 # Infrastructure state
