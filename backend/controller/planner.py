@@ -9,7 +9,18 @@ class PlannerParseError(Exception):
 class VLMServiceStub:
     @staticmethod
     def generate(prompt: str, images: list, adapter: str = None) -> str:
-        return "{}"
+        mock_plan = {
+            "workflow": "single_image_analysis",
+            "images": images if images else [],
+            "target_classes": ["water", "vegetation", "urban"],
+            "required_models": ["sam2"],
+            "optional_tools": ["st_area"],
+            "requested_outputs": ["masks", "measurements"],
+            "final_adapter": None,
+            "fallback": None
+        }
+        import json
+        return json.dumps(mock_plan)
 
 try:
     from model_services.vlm_service import inference
@@ -45,13 +56,17 @@ def _build_planner_prompt(query: str, input_profiles: list[InputProfile]) -> str
     )
     return prompt
 
+def _clean_json(text: str) -> str:
+    import re
+    return re.sub(r"```(?:json)?\s*|\s*```", "", text).strip()
+
 def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -> ExecutionPlan:
     prompt = _build_planner_prompt(query, input_profiles)
     
     response_text = inference.generate(prompt=prompt, images=image_ids, adapter=None)
     
     try:
-        return ExecutionPlan.model_validate_json(response_text)
+        return ExecutionPlan.model_validate_json(_clean_json(response_text))
     except Exception as e:
         parse_error = str(e)
         
@@ -65,6 +80,6 @@ def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -
     retry_response = inference.generate(prompt=retry_prompt, images=image_ids, adapter=None)
     
     try:
-        return ExecutionPlan.model_validate_json(retry_response)
+        return ExecutionPlan.model_validate_json(_clean_json(retry_response))
     except Exception as e:
         raise PlannerParseError(f"Failed to parse ExecutionPlan after retry. Final error: {e}")
