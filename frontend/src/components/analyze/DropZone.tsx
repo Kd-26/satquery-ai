@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { UploadCloud, File as FileIcon, X, CheckCircle2, Image as ImageIcon, AlertCircle } from "lucide-react";
+import { UploadCloud, File as FileIcon, X, CheckCircle2, Image as ImageIcon, AlertCircle, Satellite } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { uploadImage } from "@/lib/api";
+import { uploadImage, getImagePreviewUrl } from "@/lib/api";
 
 export type UploadedFile = {
   file: File;
-  preview?: string;
+  preview?: string;        // URL of display-ready preview (blob: for JPG/PNG, backend URL for GeoTIFF)
+  previewLoading?: boolean; // true while waiting for backend preview to load
+  previewError?: boolean;   // true if preview fetch failed
   progress: number;
   status: "uploading" | "done" | "error";
   imageId?: string; // returned by backend after successful upload
@@ -61,10 +63,22 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
       );
     })
       .then((res) => {
+        const previewUrl = getImagePreviewUrl(res.image_id);
         setFiles((prev) =>
           prev.map((f) =>
             f.file.name === file.name
-              ? { ...f, progress: 100, status: "done", imageId: res.image_id }
+              ? {
+                  ...f,
+                  progress: 100,
+                  status: "done",
+                  imageId: res.image_id,
+                  // Always use the backend-generated preview for any file with has_preview=true.
+                  // This covers: 13-band S2, 2-band SAR, 3/4-band GeoTIFF.
+                  // For standard PNG/JPEG without a backend preview, keep the existing blob URL.
+                  ...(res.has_preview
+                    ? { preview: previewUrl, previewLoading: true, previewError: false }
+                    : {}),
+                }
               : f
           )
         );
@@ -176,8 +190,40 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
                 )}
 
                 <div className="w-16 h-16 rounded-xl bg-bg border border-stroke flex items-center justify-center overflow-hidden shrink-0 relative z-10">
-                  {f.preview ? (
-                    <img src={f.preview} alt="preview" className="w-full h-full object-cover" />
+                  {f.preview && !f.previewError ? (
+                    <>
+                      {/* Shimmer shown while the backend preview PNG is loading */}
+                      {f.previewLoading && (
+                        <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-stroke/30 via-white/5 to-stroke/30 z-10" />
+                      )}
+                      <img
+                        src={f.preview}
+                        alt="satellite preview"
+                        className={`w-full h-full object-cover transition-opacity duration-500 ${
+                          f.previewLoading ? "opacity-0" : "opacity-100"
+                        }`}
+                        onLoad={() =>
+                          setFiles((prev) =>
+                            prev.map((p) =>
+                              p.file.name === f.file.name
+                                ? { ...p, previewLoading: false }
+                                : p
+                            )
+                          )
+                        }
+                        onError={() =>
+                          setFiles((prev) =>
+                            prev.map((p) =>
+                              p.file.name === f.file.name
+                                ? { ...p, previewLoading: false, previewError: true }
+                                : p
+                            )
+                          )
+                        }
+                      />
+                    </>
+                  ) : f.metadata?.type === "sar" ? (
+                    <Satellite className="w-6 h-6 text-sky-400" />
                   ) : (
                     <ImageIcon className="w-6 h-6 text-muted" />
                   )}
