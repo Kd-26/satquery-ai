@@ -5,6 +5,54 @@ import numpy as np
 class IncompatibleInputError(Exception):
     pass
 
+def _find_band_index(rb: str, actual_bands: list[str], file_channels: int) -> int | None:
+    rb_upper = rb.upper()
+    # 1. Exact match
+    for i, b in enumerate(actual_bands):
+        if b.upper() == rb_upper:
+            return i
+
+    # 2. Optical RGB / Sentinel-2 band mappings (B4=Red, B3=Green, B2=Blue, B8=NIR)
+    if rb_upper in ("R", "RED"):
+        for i, b in enumerate(actual_bands):
+            if b.upper() in ("B4", "RED", "BAND_4", "R"):
+                return i
+        if file_channels in (3, 4) and len(actual_bands) >= 1:
+            return 0
+    elif rb_upper in ("G", "GREEN"):
+        for i, b in enumerate(actual_bands):
+            if b.upper() in ("B3", "GREEN", "BAND_3", "G"):
+                return i
+        if file_channels in (3, 4) and len(actual_bands) >= 2:
+            return 1
+    elif rb_upper in ("B", "BLUE"):
+        for i, b in enumerate(actual_bands):
+            if b.upper() in ("B2", "BLUE", "BAND_2", "B"):
+                return i
+        if file_channels in (3, 4) and len(actual_bands) >= 3:
+            return 2
+    elif rb_upper in ("NIR", "NEAR_INFRARED"):
+        for i, b in enumerate(actual_bands):
+            if b.upper() in ("B8", "B8A", "NIR", "BAND_8", "BAND_4"):
+                return i
+        if file_channels == 4 and len(actual_bands) >= 4:
+            return 3
+    # 3. SAR VV / VH mappings
+    elif rb_upper == "VV":
+        for i, b in enumerate(actual_bands):
+            if b.upper() in ("VV", "BAND_1"):
+                return i
+        if file_channels in (1, 2) and len(actual_bands) >= 1:
+            return 0
+    elif rb_upper == "VH":
+        for i, b in enumerate(actual_bands):
+            if b.upper() in ("VH", "BAND_2"):
+                return i
+        if file_channels == 2 and len(actual_bands) >= 2:
+            return 1
+
+    return None
+
 def prepare_model_input(image_id: str, model_id: str) -> dict:
     from backend.registry.registry_loader import get_by_id
     from backend.controller.ingestion import resolve_metadata
@@ -32,8 +80,9 @@ def prepare_model_input(image_id: str, model_id: str) -> dict:
     actual_band_identities = profile.band_identities
     
     for rb in required_bands:
-        if rb in actual_band_identities:
-            band_indices.append(actual_band_identities.index(rb))
+        matched_idx = _find_band_index(rb, actual_band_identities, profile.channels)
+        if matched_idx is not None:
+            band_indices.append(matched_idx)
         else:
             raise IncompatibleInputError(f"Required band/polarization '{rb}' is missing from the image's InputProfile.")
             
