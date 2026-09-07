@@ -27,6 +27,7 @@ from backend.controller.executor import (
     run_crossmodal_workflow,
     ExecutorError,
 )
+from backend.controller.preprocessing import IncompatibleInputError
 from backend.controller.evidence import build_evidence_package
 from backend.controller.answerer import generate_answer
 from backend.controller.verifier import verify_answer, get_conservative_fallback
@@ -92,7 +93,7 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
         run_state.update_stage(run_id, f"executing_tool:{execution_plan.workflow}", 60)
         try:
             workflow_result = workflow_fn(execution_plan, validation)
-        except ExecutorError as e:
+        except (ExecutorError, IncompatibleInputError) as e:
             run_state.mark_failed(run_id, f"Execution failed: {e}")
             return
 

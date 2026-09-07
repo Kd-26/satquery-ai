@@ -163,10 +163,38 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
     
     valid_mask = compute_valid_mask(raw_raster, nodata_value=profile.nodata_value)
     
-    for model_id in plan.required_models:
+    # Determine active models compatible with this image's modality
+    from backend.controller.validator import _is_sar_profile
+    is_sar_img = _is_sar_profile(profile)
+    active_models = []
+    for mid in plan.required_models:
+        try:
+            entry = get_by_id(mid)
+            if is_sar_img and entry.modality == "sar":
+                active_models.append(mid)
+            elif (not is_sar_img) and entry.modality in ("optical", "optical_rgb"):
+                active_models.append(mid)
+            elif entry.modality not in ("sar", "optical", "optical_rgb"):
+                active_models.append(mid)
+        except Exception:
+            pass
+
+    if not active_models:
+        fallback_model = "SEG_SAR_VV_VH_v1" if is_sar_img else "SEG_RGB_v1"
+        logger.info(
+            "No matching model in plan for image %s (is_sar=%s); defaulting to %s",
+            image_id, is_sar_img, fallback_model
+        )
+        active_models = [fallback_model]
+
+    for model_id in active_models:
         start_t = time.time()
         
-        prep_res = prepare_model_input(image_id, model_id)
+        try:
+            prep_res = prepare_model_input(image_id, model_id)
+        except Exception as e:
+            raise ExecutorError(f"Preprocessing for model {model_id} failed: {e}") from e
+
         tensor = prep_res["tensor_or_path"]
         tile_transforms = prep_res["tile_transforms"]
         
@@ -378,9 +406,17 @@ def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult) -
     if len(plan.images) < 2:
         raise ExecutorError("Cross-modal workflow requires at least 2 images.")
         
+    from backend.controller.validator import _is_sar_profile, _is_optical_profile
     p0 = resolve_metadata(plan.images[0])
+    p1 = resolve_metadata(plan.images[1])
     
-    if p0.sensor_family in ['sentinel-1', 'risat']:
+    if _is_sar_profile(p0) and _is_optical_profile(p1):
+        image_sar = plan.images[0]
+        image_opt = plan.images[1]
+    elif _is_optical_profile(p0) and _is_sar_profile(p1):
+        image_opt = plan.images[0]
+        image_sar = plan.images[1]
+    elif _is_sar_profile(p0):
         image_sar = plan.images[0]
         image_opt = plan.images[1]
     else:
