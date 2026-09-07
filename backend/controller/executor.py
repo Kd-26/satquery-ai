@@ -249,6 +249,40 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
                     "reason": str(e)
                 })
             
+    # ── Pixel-fraction measurements (always available, even without CRS) ─────
+    # When pixel_spacing_m is absent (e.g. plain JPEG/PNG), we cannot compute
+    # area in hectares, but we CAN produce percentage coverage claims.
+    # These are real measurements the VLM can cite and the verifier can check.
+    total_valid_pixels = int(valid_mask.sum())
+    has_geo_measurements = bool(measurements_out)
+
+    if total_valid_pixels > 0:
+        for mask_key, mask_arr in masks_out.items():
+            # mask_key format: "{model_id}_{class_name}"
+            cls_name = mask_key.split("_")[-1]
+            covered = int((mask_arr.astype(bool) & valid_mask).sum())
+            pct = round((covered / total_valid_pixels) * 100.0, 1)
+
+            # Only emit if coverage > 1% (avoids noise claims)
+            if pct > 1.0:
+                meas_key = f"coverage_{cls_name}"
+                if meas_key not in measurements_out:
+                    measurements_out[meas_key] = {
+                        "area_hectares": pct,   # stored as %, label clarifies unit
+                        "unit": "percent",
+                        "pixel_count": covered,
+                        "total_pixels": total_valid_pixels,
+                    }
+
+    # Note in traces whether geo-calibrated or pixel-fraction
+    if not has_geo_measurements and measurements_out:
+        traces.append({
+            "step": "pixel_fraction_measurement",
+            "note": "No CRS/pixel_spacing — measurements are % pixel coverage, not ha",
+            "duration_s": 0.0,
+            "status": "success",
+        })
+
     return {
         "masks": masks_out,
         "scores": scores_out,

@@ -50,13 +50,22 @@ export interface Claim {
   measurement: number;
   region_id: string;
   confidence: number;
+  tool?: string;            // e.g. "geometry.pixel_fraction" | "geometry.measure_regions"
+  source_images?: string[];
 }
 
 export interface TraceStep {
-  step_name: string;
-  model_or_tool: string;
-  parameters: Record<string, unknown>;
-  execution_time_ms: number;
+  // Fields sent by backend controller
+  step?: string;
+  model_id?: string;
+  duration_s?: number;
+  status?: string;
+  note?: string;
+  // Legacy/frontend fields kept for compatibility
+  step_name?: string;
+  model_or_tool?: string;
+  parameters?: Record<string, unknown>;
+  execution_time_ms?: number;
 }
 
 export interface AnswerObj {

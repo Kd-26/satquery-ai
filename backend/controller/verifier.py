@@ -166,6 +166,20 @@ def verify_answer(answer_text: str, evidence: EvidencePackage) -> VerificationRe
             if is_valid:
                 break
 
+            # Also allow numbers that match a measurement directly in % form
+            # (e.g. claim measurement=34.0 meaning 34% coverage → VLM writes "34%")
+            for meas in valid_measurements:
+                if 0.0 < meas <= 100.0:
+                    if abs(cand - meas) <= (meas * tolerance + 1.0):
+                        is_valid = True
+                        break
+                    # fraction form: 0.34 for 34%
+                    if abs(cand - meas / 100.0) <= 0.02:
+                        is_valid = True
+                        break
+            if is_valid:
+                break
+
         if not is_valid:
             unit_suffix = f" {unit_str}" if unit_str else ""
             flagged_claims.append(f"Number '{num_str}{unit_suffix}' not grounded in evidence claims or confidence metrics.")

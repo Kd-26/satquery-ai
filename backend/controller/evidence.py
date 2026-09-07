@@ -52,35 +52,46 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
             
     # For each measurement in workflow_result, create a claim entry
     measurements = workflow_result.get("measurements", {})
+    has_percent_claims = False
     for m_key, m_val in measurements.items():
         region_id = str(uuid.uuid4())
-        
-        # e.g., 'gain_water_area' -> 'water area increased'
+
+        unit = m_val.get("unit", "ha") if isinstance(m_val, dict) else "ha"
+        is_percent = (unit == "percent")
+
+        # Derive a readable claim string from the key
         parts = m_key.split('_')
-        class_name = parts[1] if len(parts) > 1 else m_key
-        
-        if m_key.startswith('gain'):
-            claim_str = f"{class_name} area increased"
+
+        if m_key.startswith('coverage_'):
+            # pixel-fraction: coverage_water → "water pixel coverage"
+            cls_name = '_'.join(parts[1:]) if len(parts) > 1 else m_key
+            claim_str = f"{cls_name} pixel coverage"
+            has_percent_claims = True
+        elif m_key.startswith('gain'):
+            cls_name = parts[1] if len(parts) > 1 else m_key
+            claim_str = f"{cls_name} area increased"
         elif m_key.startswith('loss'):
-            claim_str = f"{class_name} area decreased"
+            cls_name = parts[1] if len(parts) > 1 else m_key
+            claim_str = f"{cls_name} area decreased"
         elif m_key.startswith('net_change'):
-            claim_str = f"{class_name} net change"
+            cls_name = parts[1] if len(parts) > 1 else m_key
+            claim_str = f"{cls_name} net change"
         else:
-            claim_str = f"{class_name} area measured"
-            
-        measurement = m_val.get("area_hectares", 0.0)
-        tool = "geometry.measure_regions"
-        
-        # Estimate a base confidence (1.0 for geometry logic itself, but limited by the model scores if any)
-        # We will clamp it to the validation.confidence_caps if the relevant model has an entry
-        base_confidence = 0.9 
-        
+            cls_name = parts[1] if len(parts) > 1 else m_key
+            claim_str = f"{cls_name} area measured"
+
+        measurement = m_val.get("area_hectares", 0.0) if isinstance(m_val, dict) else float(m_val)
+        tool = "geometry.pixel_fraction" if is_percent else "geometry.measure_regions"
+
+        # Estimate a base confidence (capped by model calibration)
+        base_confidence = 0.82 if is_percent else 0.9
+
         for model_id in plan.required_models:
             if model_id in validation.confidence_caps:
                 cap = validation.confidence_caps[model_id]
                 if base_confidence > cap:
                     base_confidence = cap
-                    
+
         claims.append(Claim(
             claim=claim_str,
             measurement=measurement,
@@ -89,6 +100,15 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
             tool=tool,
             confidence=base_confidence
         ))
+
+    # If all claims are pixel-fraction, add a clear unit limitation
+    if has_percent_claims and not any(
+        c.tool == "geometry.measure_regions" for c in claims
+    ):
+        limitations.append(
+            "Measurements are pixel-coverage percentages (no geospatial calibration available). "
+            "Upload a georeferenced GeoTIFF to get area estimates in hectares."
+        )
         
     return EvidencePackage(
         run_id=run_id,

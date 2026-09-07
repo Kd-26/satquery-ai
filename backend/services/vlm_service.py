@@ -11,6 +11,13 @@ This model supports:
   • Streaming (available but not used in synchronous pipeline calls)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+API KEY POOL (rate-limit resilient)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+On 503 (worker limit) or 429 (rate limit), the service automatically rotates
+to the next API key in the pool. All 8 keys are tried round-robin before
+raising VLMError.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FINE-TUNED LORA SWAP (when ready)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 When the fine-tuned LoRA is ready, make ONLY these changes:
@@ -33,9 +40,20 @@ logger = logging.getLogger(__name__)
 
 # ── Model / endpoint config ──────────────────────────────────────────────────
 INVOKE_URL   = os.getenv("NIM_API_BASE", "https://integrate.api.nvidia.com/v1") + "/chat/completions"
-API_KEY      = os.getenv("NIM_API_KEY",  "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")
 MODEL_ID     = os.getenv("VLM_MODEL_ID", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
 LORA_ADAPTER = os.getenv("VLM_LORA_ADAPTER", "")   # blank until fine-tuned model is ready
+
+# ── API key pool — rotated on 503/429 to maximise throughput ─────────────────
+_KEY_POOL: list[str] = [k for k in [
+    os.getenv("NIM_API_KEY",   "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"),
+    os.getenv("NIM_API_KEY_2", "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"),
+    os.getenv("NIM_API_KEY_3", "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"),
+    os.getenv("NIM_API_KEY_4", "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"),
+    os.getenv("NIM_API_KEY_5", "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"),
+    os.getenv("NIM_API_KEY_6", "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"),
+    os.getenv("NIM_API_KEY_7", "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"),
+    os.getenv("NIM_API_KEY_8", "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"),
+] if k]
 
 # ── Generation defaults ───────────────────────────────────────────────────────
 MAX_TOKENS       = int(os.getenv("VLM_MAX_TOKENS",       "8192"))
@@ -44,8 +62,10 @@ TEMPERATURE      = float(os.getenv("VLM_TEMPERATURE",    "0.3"))
 TOP_P            = float(os.getenv("VLM_TOP_P",          "0.95"))
 
 # ── Retry config ─────────────────────────────────────────────────────────────
-MAX_RETRIES   = 3
-RETRY_BACKOFF = 2.0   # seconds; doubles each retry
+# Each key gets up to MAX_RETRIES_PER_KEY tries before we rotate to the next key.
+MAX_RETRIES_PER_KEY = 2
+RETRY_BACKOFF       = 5.0   # seconds before retry on same key (doubles each retry)
+KEY_ROTATE_WAIT     = 1.0   # brief pause before switching to next key
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -185,23 +205,24 @@ def _call_nim(
     reasoning_budget: int = REASONING_BUDGET,
 ) -> dict:
     """
-    Make the HTTP request to NVIDIA NIM with retry logic.
-    Returns the raw response JSON dict.
-    """
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
+    Make the HTTP request to NVIDIA NIM with key-rotation + per-key retry logic.
 
+    Strategy:
+      • Tries each key in _KEY_POOL sequentially.
+      • On 503 (worker limit) or 429 (rate limit) → rotate immediately to next key.
+      • On transient 5xx / timeout → retry same key up to MAX_RETRIES_PER_KEY times
+        with exponential backoff before rotating.
+      • 4xx errors (except 429) are not retried (auth/bad request — fix the payload).
+      • Raises VLMError only after ALL keys are exhausted.
+    """
     payload: dict[str, Any] = {
-        "model":           MODEL_ID,
-        "messages":        messages,
-        "max_tokens":      max_tokens,
+        "model":            MODEL_ID,
+        "messages":         messages,
+        "max_tokens":       max_tokens,
         "reasoning_budget": reasoning_budget,
-        "temperature":     TEMPERATURE,
-        "top_p":           TOP_P,
-        "stream":          False,
+        "temperature":      TEMPERATURE,
+        "top_p":            TOP_P,
+        "stream":           False,
     }
 
     if tools:
@@ -215,52 +236,81 @@ def _call_nim(
     #     payload["lora_adapter"] = effective_adapter    ← UNCOMMENT FOR LORA
 
     last_exc: Exception | None = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            t0 = time.perf_counter()
-            resp = requests.post(
-                INVOKE_URL,
-                headers=headers,
-                json=payload,
-                timeout=120,
-            )
-            elapsed = time.perf_counter() - t0
+    keys_tried = 0
 
-            if resp.status_code == 429:
-                # Rate-limited — back off
-                wait = RETRY_BACKOFF * (2 ** (attempt - 1))
-                logger.warning("NIM rate-limited (attempt %d/%d). Retrying in %.1fs", attempt, MAX_RETRIES, wait)
+    for key_idx, api_key in enumerate(_KEY_POOL):
+        keys_tried += 1
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Accept":        "application/json",
+            "Content-Type":  "application/json",
+        }
+        key_label = f"key[{key_idx + 1}/{len(_KEY_POOL)}]"
+
+        for attempt in range(1, MAX_RETRIES_PER_KEY + 1):
+            try:
+                t0 = time.perf_counter()
+                resp = requests.post(
+                    INVOKE_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=120,
+                )
+                elapsed = time.perf_counter() - t0
+
+                # ── Rate-limited or worker saturated — rotate to next key immediately
+                if resp.status_code in (429, 503):
+                    logger.warning(
+                        "NIM %s %s (attempt %d/%d) — rotating to next key. Body: %s",
+                        resp.status_code, key_label, attempt, MAX_RETRIES_PER_KEY,
+                        resp.text[:200],
+                    )
+                    last_exc = Exception(f"HTTP {resp.status_code} on {key_label}")
+                    time.sleep(KEY_ROTATE_WAIT)
+                    break  # break inner retry loop → advance to next key
+
+                resp.raise_for_status()
+                result = resp.json()
+                logger.info(
+                    "NIM ok | %s attempt=%d elapsed=%.2fs tokens=%s",
+                    key_label,
+                    attempt,
+                    elapsed,
+                    result.get("usage", {}).get("total_tokens", "?"),
+                )
+                return result
+
+            except requests.exceptions.Timeout as e:
+                last_exc = e
+                logger.warning("NIM timeout %s (attempt %d/%d)", key_label, attempt, MAX_RETRIES_PER_KEY)
+
+            except requests.exceptions.HTTPError as e:
+                last_exc = e
+                status = resp.status_code if resp is not None else "?"
+                logger.error(
+                    "NIM HTTP error %s %s (attempt %d/%d): %s",
+                    status, key_label, attempt, MAX_RETRIES_PER_KEY, resp.text[:300]
+                )
+                if status not in (429, 503) and isinstance(status, int) and status < 500:
+                    # 4xx non-ratelimit → don't retry, don't rotate, raise immediately
+                    raise VLMError(f"NIM API error {status}: {resp.text[:300]}") from e
+                if status in (429, 503):
+                    time.sleep(KEY_ROTATE_WAIT)
+                    break  # rotate
+
+            except Exception as e:
+                last_exc = e
+                logger.error("NIM unexpected error %s (attempt %d/%d): %s", key_label, attempt, MAX_RETRIES_PER_KEY, e)
+
+            # Exponential backoff before same-key retry
+            if attempt < MAX_RETRIES_PER_KEY:
+                wait = RETRY_BACKOFF * attempt
+                logger.info("Retrying same key in %.1fs…", wait)
                 time.sleep(wait)
-                continue
 
-            resp.raise_for_status()
-            result = resp.json()
-            logger.info(
-                "NIM call ok | model=%s attempt=%d elapsed=%.2fs tokens_used=%s",
-                MODEL_ID,
-                attempt,
-                elapsed,
-                result.get("usage", {}).get("total_tokens", "?"),
-            )
-            return result
-
-        except requests.exceptions.Timeout as e:
-            last_exc = e
-            logger.warning("NIM timeout (attempt %d/%d)", attempt, MAX_RETRIES)
-        except requests.exceptions.HTTPError as e:
-            last_exc = e
-            logger.error("NIM HTTP error %s (attempt %d/%d): %s", resp.status_code, attempt, MAX_RETRIES, resp.text[:300])
-            if resp.status_code < 500:
-                # 4xx — don't retry
-                raise VLMError(f"NIM API error {resp.status_code}: {resp.text[:300]}") from e
-        except Exception as e:
-            last_exc = e
-            logger.error("NIM unexpected error (attempt %d/%d): %s", attempt, MAX_RETRIES, e)
-
-        if attempt < MAX_RETRIES:
-            time.sleep(RETRY_BACKOFF * attempt)
-
-    raise VLMError(f"NIM call failed after {MAX_RETRIES} attempts. Last error: {last_exc}") from last_exc
+    raise VLMError(
+        f"NIM call failed after trying all {keys_tried} key(s). Last error: {last_exc}"
+    ) from last_exc
 
 
 def _extract_text(raw: dict) -> str:
