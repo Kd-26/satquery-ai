@@ -235,7 +235,7 @@ function InsightsContent() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2, ease }}
           >
-            <ConfidenceBar confidence={confidence} />
+            <ConfidenceBar confidence={confidence} loading={loading} />
             <MeasurementTable run={run} />
             <EvidencePanel run={run} graph={graph} loading={loading} />
           </motion.div>

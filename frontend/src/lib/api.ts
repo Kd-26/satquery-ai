@@ -1,10 +1,11 @@
 /**
  * SatQuery AI — Typed API Client
  * All backend calls go through this module.
- * Base URL is read from NEXT_PUBLIC_API_BASE_URL (defaults to http://localhost:8000).
+ * In development, Next.js rewrites /api/v1/* → http://localhost:8000/api/v1/*
+ * (see next.config.mjs). Set NEXT_PUBLIC_API_BASE_URL to override for production.
  */
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 // ─── Generic fetch helper ────────────────────────────────────────────────────
 

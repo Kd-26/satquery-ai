@@ -28,7 +28,7 @@ from backend.controller.executor import (
     ExecutorError,
 )
 from backend.controller.evidence import build_evidence_package
-from backend.controller.answerer import generate_answer
+from backend.controller.answerer import generate_answer, generate_answer_from_process_log
 from backend.controller.verifier import verify_answer, get_conservative_fallback
 
 _WORKFLOW_DISPATCH = {
@@ -102,6 +102,34 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "vlm_synthesis", 90)
+
+        if not evidence.claims:
+            # No tool measurements were produced — compile the full process log
+            # and send it to the VLM for a qualitative answer + confidence estimate.
+            # This guarantees the result is never empty.
+            answer_obj, synthetic_claims = generate_answer_from_process_log(
+                query=query,
+                evidence=evidence,
+                plan=execution_plan,
+                validation=validation,
+                traces=workflow_result.get("traces", []),
+            )
+            evidence.claims.extend(synthetic_claims)
+            evidence.limitations.append(
+                "No numeric measurements could be extracted; confidence is a qualitative "
+                "VLM estimate based on pipeline process log only."
+            )
+            # Skip normal verifier — synthetic claim has no numbers to cross-check
+            result = {
+                "answer": answer_obj["plain_language"],
+                "answer_obj": answer_obj,
+                "claims": [c.model_dump() for c in evidence.claims],
+                "limitations": list(evidence.limitations),
+                "traces": workflow_result.get("traces", []),
+            }
+            run_state.mark_done(run_id, result)
+            return
+
         answer_obj = generate_answer(query, evidence, execution_plan)
 
         run_state.check_cancelled(run_id)
