@@ -219,7 +219,8 @@ def get_conservative_fallback(evidence: EvidencePackage) -> str:
     if evidence.claims:
         for c in evidence.claims:
             conf_str = f"{c.confidence:.0%}"
-            lines.append(f"- **{c.claim.capitalize()}**: `{c.measurement:.4g} ha` (Confidence: {conf_str}, Tool: `{c.tool}`)")
+            unit = "%" if c.tool == "geometry.pixel_fraction" else "ha"
+            lines.append(f"- **{c.claim.capitalize()}**: `{c.measurement:.4g} {unit}` (Confidence: {conf_str}, Tool: `{c.tool}`)")
     else:
         lines.append("- No quantitative features exceeded the minimum detection threshold.")
 

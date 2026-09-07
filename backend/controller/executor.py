@@ -257,22 +257,24 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
     has_geo_measurements = bool(measurements_out)
 
     if total_valid_pixels > 0:
-        for mask_key, mask_arr in masks_out.items():
-            # mask_key format: "{model_id}_{class_name}"
-            cls_name = mask_key.split("_")[-1]
-            covered = int((mask_arr.astype(bool) & valid_mask).sum())
-            pct = round((covered / total_valid_pixels) * 100.0, 1)
+        for model_id in plan.required_models:
+            prefix = f"{model_id}_"
+            for mask_key, mask_arr in list(masks_out.items()):
+                if mask_key.startswith(prefix):
+                    cls_name = mask_key[len(prefix):]
+                    covered = int((mask_arr.astype(bool) & valid_mask).sum())
+                    pct = round((covered / total_valid_pixels) * 100.0, 1)
 
-            # Only emit if coverage > 1% (avoids noise claims)
-            if pct > 1.0:
-                meas_key = f"coverage_{cls_name}"
-                if meas_key not in measurements_out:
-                    measurements_out[meas_key] = {
-                        "area_hectares": pct,   # stored as %, label clarifies unit
-                        "unit": "percent",
-                        "pixel_count": covered,
-                        "total_pixels": total_valid_pixels,
-                    }
+                    # Only emit if coverage > 1% (avoids noise claims)
+                    if pct > 1.0:
+                        meas_key = f"coverage_{cls_name}"
+                        if meas_key not in measurements_out:
+                            measurements_out[meas_key] = {
+                                "area_hectares": pct,   # stored as %, label clarifies unit
+                                "unit": "percent",
+                                "pixel_count": covered,
+                                "total_pixels": total_valid_pixels,
+                            }
 
     # Note in traces whether geo-calibrated or pixel-fraction
     if not has_geo_measurements and measurements_out:

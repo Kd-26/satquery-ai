@@ -70,8 +70,9 @@ def _serialise_evidence(evidence: EvidencePackage) -> str:
     lines: list[str] = ["=== VERIFIED MEASUREMENTS ==="]
     for c in evidence.claims:
         conf_flag = " ⚠️ low-confidence" if c.confidence < 0.7 else ""
+        unit = "%" if c.tool == "geometry.pixel_fraction" else "ha"
         lines.append(
-            f"• {c.claim}: {c.measurement:.4g} ha  "
+            f"• {c.claim}: {c.measurement:.4g} {unit}  "
             f"[confidence={c.confidence:.2f}{conf_flag}]  "
             f"[tool={c.tool}]  [region={c.region_id}]"
         )
@@ -174,7 +175,8 @@ def _conservative_text_answer(query: str, evidence: EvidencePackage) -> str:
     lines = [f"Query: {query}", "", "Analysis Results:"]
     if evidence.claims:
         for c in evidence.claims:
-            lines.append(f"  • {c.claim}: {c.measurement:.4g}  (confidence {c.confidence:.0%})")
+            unit = "%" if c.tool == "geometry.pixel_fraction" else "ha"
+            lines.append(f"  • {c.claim}: {c.measurement:.4g} {unit}  (confidence {c.confidence:.0%})")
     else:
         lines.append("  • No measurements could be extracted from the provided imagery.")
 
