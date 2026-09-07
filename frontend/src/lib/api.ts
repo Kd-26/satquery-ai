@@ -28,6 +28,7 @@ async function apiFetch<T>(
 export interface UploadImageResponse {
   status: string;
   image_id: string;
+  has_preview: boolean;
 }
 
 export interface PairResponse {
@@ -177,6 +178,20 @@ export async function uploadImage(
     xhr.onerror = () => reject(new Error("Network error during upload"));
     xhr.send(formData);
   });
+}
+
+/**
+ * Returns the URL of the display-ready RGB preview PNG for an uploaded image.
+ * The preview is generated server-side automatically on upload.
+ *
+ * Usage:
+ *   <img src={getImagePreviewUrl(imageId)} alt="satellite preview" />
+ *
+ * Returns undefined when imageId is falsy (nothing uploaded yet).
+ */
+export function getImagePreviewUrl(imageId: string | undefined): string | undefined {
+  if (!imageId) return undefined;
+  return `${BASE}/api/v1/images/${imageId}/preview`;
 }
 
 /**
