@@ -4,7 +4,7 @@
  * Base URL is read from NEXT_PUBLIC_API_BASE_URL (defaults to http://localhost:8000).
  */
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 // ─── Generic fetch helper ────────────────────────────────────────────────────
 

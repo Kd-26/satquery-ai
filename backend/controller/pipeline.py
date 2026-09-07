@@ -19,7 +19,7 @@ from typing import List
 
 from backend.controller import run_state
 from backend.controller.ingestion import resolve_metadata
-from backend.controller.planner import plan as planner_plan, PlannerParseError
+from backend.controller.planner import plan as planner_plan, replan as planner_replan, PlannerParseError
 from backend.controller.validator import validate_plan
 from backend.controller.executor import (
     run_single_image_workflow,
@@ -62,8 +62,22 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
         run_state.update_stage(run_id, "validating", 40)
         validation = validate_plan(execution_plan, profiles)
         if not validation.approved:
-            run_state.mark_failed(run_id, "Plan rejected: " + "; ".join(validation.errors))
-            return
+            # Give the planner one self-reflection pass with the rejection reasons
+            run_state.update_stage(run_id, "replanning", 45)
+            try:
+                execution_plan = planner_replan(
+                    query, image_ids, profiles, execution_plan, validation.errors
+                )
+            except PlannerParseError as e:
+                run_state.mark_failed(run_id, f"Replanning failed: {e}")
+                return
+            validation = validate_plan(execution_plan, profiles)
+            if not validation.approved:
+                run_state.mark_failed(
+                    run_id,
+                    "Plan rejected after replanning: " + "; ".join(validation.errors)
+                )
+                return
 
         run_state.check_cancelled(run_id)
         workflow_fn = _WORKFLOW_DISPATCH.get(execution_plan.workflow)
