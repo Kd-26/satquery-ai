@@ -9,6 +9,7 @@ const nextConfig = {
         hostname: '**',
       },
     ],
+  },
   async rewrites() {
     return [
       {
