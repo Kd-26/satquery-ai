@@ -37,6 +37,16 @@ def _find_band_index(rb: str, actual_bands: list[str], file_channels: int) -> in
                 return i
         if file_channels == 4 and len(actual_bands) >= 4:
             return 3
+    elif rb_upper in ("SWIR1", "SWIR_1", "SHORTWAVE_INFRARED_1"):
+        # Sentinel-2 B11 (1610 nm) — used by MNDWI, NDBI
+        for i, b in enumerate(actual_bands):
+            if b.upper() in ("B11", "SWIR1", "SWIR_1", "BAND_11"):
+                return i
+    elif rb_upper in ("SWIR2", "SWIR_2", "SHORTWAVE_INFRARED_2"):
+        # Sentinel-2 B12 (2190 nm) — used by NBR, burn-area indices
+        for i, b in enumerate(actual_bands):
+            if b.upper() in ("B12", "SWIR2", "SWIR_2", "BAND_12"):
+                return i
     # 3. SAR VV / VH mappings
     elif rb_upper == "VV":
         for i, b in enumerate(actual_bands):

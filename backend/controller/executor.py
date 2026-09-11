@@ -240,41 +240,71 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
         if tool_call.startswith("compute_spectral_index:"):
             index_name = tool_call.split(":")[1].upper()
             start_t = time.time()
-            
+
             try:
-                if index_name == "NDWI":
-                    green_idx = profile.band_identities.index("G")
-                    nir_idx = profile.band_identities.index("NIR")
-                    
-                    from backend.scientific_tools.indices import compute_ndwi
-                    result = compute_ndwi(raw_raster[green_idx], raw_raster[nir_idx])
-                    
-                elif index_name == "NDVI":
-                    red_idx = profile.band_identities.index("R")
-                    nir_idx = profile.band_identities.index("NIR")
-                    
-                    from backend.scientific_tools.indices import compute_ndvi
-                    result = compute_ndvi(raw_raster[nir_idx], raw_raster[red_idx])
+                from backend.controller.preprocessing import _find_band_index, IncompatibleInputError
+                from backend.scientific_tools.indices import (
+                    compute_ndvi, compute_ndwi, compute_mndwi, compute_ndbi,
+                )
+
+                def _get_band(logical_name: str) -> np.ndarray:
+                    """
+                    Resolve a logical band name (R, G, NIR, SWIR1 …) to the
+                    correct array from the already-loaded full raster, using the
+                    same alias table that preprocessing uses.  Works correctly
+                    for plain RGB files, 4-band RGBN, and Sentinel-2 13-band files
+                    where band_identities is ["B1","B2",…,"B12"].
+                    """
+                    idx = _find_band_index(logical_name, profile.band_identities, profile.channels)
+                    if idx is None:
+                        raise IncompatibleInputError(
+                            f"Band '{logical_name}' required by {index_name} is not present "
+                            f"in image {image_id} (bands: {profile.band_identities})."
+                        )
+                    return raw_raster[idx].astype(np.float32)
+
+                if index_name == "NDVI":
+                    # NDVI = (NIR - Red) / (NIR + Red)
+                    result = compute_ndvi(nir=_get_band("NIR"), red=_get_band("R"))
+
+                elif index_name == "NDWI":
+                    # NDWI = (Green - NIR) / (Green + NIR)  [McFeeters 1996]
+                    result = compute_ndwi(green=_get_band("G"), nir=_get_band("NIR"))
+
+                elif index_name == "MNDWI":
+                    # MNDWI = (Green - SWIR1) / (Green + SWIR1)  [Xu 2006]
+                    # Requires Sentinel-2 B11 or equivalent SWIR1 band.
+                    result = compute_mndwi(green=_get_band("G"), swir1=_get_band("SWIR1"))
+
+                elif index_name == "NDBI":
+                    # NDBI = (SWIR1 - NIR) / (SWIR1 + NIR)  — built-up index
+                    result = compute_ndbi(swir1=_get_band("SWIR1"), nir=_get_band("NIR"))
+
                 else:
-                    raise ValueError(f"Unsupported spectral index: {index_name}")
-                    
+                    raise ValueError(
+                        f"Unsupported spectral index: {index_name}. "
+                        f"Supported: NDVI, NDWI, MNDWI, NDBI."
+                    )
+
+                # Mask nodata / out-of-bounds pixels
                 result[~valid_mask] = np.nan
                 tool_outputs[index_name] = result
-                
+
                 dur = time.time() - start_t
                 traces.append({
                     "step": "tool_execution",
                     "tool": tool_call,
                     "duration_s": dur,
-                    "status": "success"
+                    "status": "success",
                 })
-            except ValueError as e:
+
+            except (IncompatibleInputError, ValueError) as e:
                 traces.append({
                     "step": "tool_execution",
                     "tool": tool_call,
                     "duration_s": time.time() - start_t,
                     "status": "failed",
-                    "reason": str(e)
+                    "reason": str(e),
                 })
             
     # ── Pixel-fraction measurements (always available, even without CRS) ─────

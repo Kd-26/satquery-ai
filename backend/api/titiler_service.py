@@ -59,7 +59,14 @@ def _build_tile_response(path: Path) -> dict:
     Core logic shared by source-image and mask-tile resolve endpoints.
     Opens the raster, computes WGS-84 bounds, and builds a TiTiler tile URL template.
 
-    For rasters with no CRS (e.g. plain JPEG/PNG uploads), returns a soft-warning
+    Band selection strategy per sensor type:
+      - 13-band Sentinel-2  → bidx=4,3,2 (B4=Red, B3=Green, B2=Blue) natural colour
+      - 2-band SAR (VV+VH)  → bidx=1 (VV channel as greyscale)
+      - 1-band (panchromatic / DEM) → bidx=1
+      - 3-band RGB / 4-band RGBN → no bidx (TiTiler defaults to bands 1,2,3)
+      - Other N-band          → no bidx (TiTiler defaults to bands 1,2,3 with warning)
+
+    For rasters with no CRS (plain JPEG/PNG uploads), returns a soft-warning
     response (no_crs=true) instead of raising 422 — the frontend shows a yellow
     warning banner and still renders the map canvas.
     """
@@ -69,6 +76,7 @@ def _build_tile_response(path: Path) -> dict:
             bounds = src.bounds
             width = src.width
             height = src.height
+            band_count = src.count
     except rasterio.errors.RasterioIOError as e:
         raise HTTPException(status_code=422, detail=f"Could not open raster: {e}")
 
@@ -82,8 +90,30 @@ def _build_tile_response(path: Path) -> dict:
     else:
         bounds_4326 = list(transform_bounds(crs, "EPSG:4326", *bounds))
 
+    # Determine the bidx override for this raster's band layout.
+    # TiTiler accepts repeated ?bidx= params: bidx=4&bidx=3&bidx=2
+    if band_count == 13:
+        # Sentinel-2 L1C/L2A standard 13-band order:
+        # band index 4 = B4 (Red 665 nm)
+        # band index 3 = B3 (Green 560 nm)
+        # band index 2 = B2 (Blue 490 nm)
+        bidx_suffix = "&bidx=4&bidx=3&bidx=2"
+    elif band_count == 2:
+        # SAR: VV (band 1) visualised as greyscale; VH not shown by default.
+        bidx_suffix = "&bidx=1&bidx=1&bidx=1"
+    elif band_count == 1:
+        # Panchromatic / DEM / single-pol
+        bidx_suffix = "&bidx=1&bidx=1&bidx=1"
+    else:
+        # 3-band RGB, 4-band RGBN, or other — let TiTiler use its default
+        # (first 3 bands), which is correct for these cases.
+        bidx_suffix = ""
+
     if _TITILER_AVAILABLE:
-        raw_tile_template = f"/api/v1/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}.png?url={encoded_url}"
+        raw_tile_template = (
+            f"/api/v1/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}.png"
+            f"?url={encoded_url}{bidx_suffix}"
+        )
     else:
         raw_tile_template = f"/api/v1/tiles/{{z}}/{{x}}/{{y}}?url={encoded_url}"
 
@@ -92,6 +122,7 @@ def _build_tile_response(path: Path) -> dict:
         "bounds": bounds_4326,
         "titiler_available": _TITILER_AVAILABLE,
         "no_crs": no_crs,
+        "band_count": band_count,
         "crs_warning": (
             "Raster has no CRS — displayed at pixel coordinates only. "
             "Upload a georeferenced GeoTIFF for accurate map placement and area measurements in hectares."
