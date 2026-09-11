@@ -104,7 +104,10 @@ export interface TileInfo {
   tile_url_template: string;
   bounds: [number, number, number, number]; // [west, south, east, north] in EPSG:4326
   titiler_available: boolean;
+  no_crs: boolean;
+  crs_warning: string | null;
 }
+
 
 export interface GraphNode {
   id: string;
@@ -307,6 +310,70 @@ export async function getImageTileInfo(imageId: string): Promise<TileInfo> {
     tile_url_template: `${BASE}${info.tile_url_template}`,
   };
 }
+
+export interface MaskTileInfo {
+  run_id: string;
+  mask_name: string;
+  tile_url_template: string;
+  bounds: [number, number, number, number];
+  titiler_available: boolean;
+  no_crs: boolean;
+  crs_warning: string | null;
+}
+
+/**
+ * Resolve a saved run mask to a TiTiler tile URL template + bounds.
+ * Used by MapCanvas to overlay Semantic / Change / Quality masks.
+ * Returns null if the mask hasn't been generated for this run yet.
+ */
+export async function getMaskTileInfo(
+  runId: string,
+  maskName: string
+): Promise<MaskTileInfo | null> {
+  try {
+    const info = await apiFetch<MaskTileInfo>(
+      `/api/v1/tiles/masks/${runId}/${maskName}/resolve`
+    );
+    return {
+      ...info,
+      tile_url_template: `${BASE}${info.tile_url_template}`,
+    };
+  } catch {
+    // 404 = mask not generated yet — return null so caller can show a soft warning
+    return null;
+  }
+}
+
+export interface PixelBand {
+  label: string;
+  value: number;
+}
+
+export interface PixelInspectResult {
+  image_id: string;
+  lat: number;
+  lon: number;
+  pixel_row: number;
+  pixel_col: number;
+  bands: PixelBand[];
+  no_crs: boolean;
+  crs_warning: string | null;
+}
+
+/**
+ * Fetch the raw pixel band values at a clicked map coordinate.
+ * Used by the Inspect Pixel tool in MapCanvas.
+ */
+export async function inspectPixel(
+  imageId: string,
+  lat: number,
+  lon: number
+): Promise<PixelInspectResult> {
+  return apiFetch<PixelInspectResult>(
+    `/api/v1/tiles/inspect?image_id=${encodeURIComponent(imageId)}&lat=${lat}&lon=${lon}`
+  );
+}
+
 
 // ─── Exports ─────────────────────────────────────────────────────────────────
 

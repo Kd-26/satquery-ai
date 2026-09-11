@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useRef } from "react";
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSearchParams } from "next/navigation";
-import MapCanvas from "@/components/results/MapCanvas";
+import MapCanvas, { type MapCanvasHandle, type LayerState, type ActiveTool, type CompareMode } from "@/components/results/MapCanvas";
 import LayerManager from "@/components/results/LayerManager";
 import PairComparison from "@/components/results/PairComparison";
 import EvidencePanel from "@/components/results/EvidencePanel";
@@ -16,20 +16,36 @@ import { getRun, getRunGraph, downloadRunExport, cancelRun, type RunResult, type
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 const POLL_INTERVAL = 2500;
 
+// Default layer stack — matches the four tabs
+const DEFAULT_LAYERS: LayerState[] = [
+  { id: "semantic", name: "Semantic Mask",        visible: true,  opacity: 70,  locked: false },
+  { id: "change",   name: "Change Detection",     visible: false, opacity: 80,  locked: false },
+  { id: "quality",  name: "Quality Mask",         visible: true,  opacity: 60,  locked: false },
+  { id: "source",   name: "Source GeoTIFF (RGB)", visible: true,  opacity: 100, locked: true  },
+];
+
 // Inner component that uses useSearchParams — must be wrapped in Suspense
 function InsightsContent() {
   const searchParams = useSearchParams();
   const runId = searchParams.get("runId");
 
-  const [activeTab, setActiveTab] = useState("Semantic");
-  const [compareMode, setCompareMode] = useState("swipe");
-  const [run, setRun] = useState<RunResult | null>(null);
-  const [graph, setGraph] = useState<GraphData | null>(null);
-  const [loading, setLoading] = useState(!!runId);
-  const [error, setError] = useState<string | null>(null);
+  // ─── Map state (lifted from MapCanvas / LayerManager) ─────────────────────
+  const [activeTab,   setActiveTab]   = useState<string>("Semantic");
+  const [compareMode, setCompareMode] = useState<CompareMode>("swipe");
+  const [activeTool,  setActiveTool]  = useState<ActiveTool>("select");
+  const [layers,      setLayers]      = useState<LayerState[]>(DEFAULT_LAYERS);
+
+  // Ref to MapCanvas imperative handle — for Layer Manager → map binding
+  const mapRef = useRef<MapCanvasHandle>(null);
+
+  // ─── Run polling ──────────────────────────────────────────────────────────
+  const [run,         setRun]         = useState<RunResult | null>(null);
+  const [graph,       setGraph]       = useState<GraphData | null>(null);
+  const [loading,     setLoading]     = useState(!!runId);
+  const [error,       setError]       = useState<string | null>(null);
   const [wasCancelled, setWasCancelled] = useState(false);
-  const [exporting, setExporting] = useState<ExportFormat | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  const [exporting,   setExporting]   = useState<ExportFormat | null>(null);
+  const [cancelling,  setCancelling]  = useState(false);
 
   useEffect(() => {
     if (!runId) return;
@@ -88,6 +104,27 @@ function InsightsContent() {
       setExporting(null);
     }
   }, [runId]);
+
+  // ─── Layer Manager callbacks → imperative map handle ─────────────────────
+
+  const handleToggleVisibility = useCallback((id: string) => {
+    setLayers((prev) =>
+      prev.map((l) => (l.id === id && !l.locked ? { ...l, visible: !l.visible } : l))
+    );
+    const layer = layers.find((l) => l.id === id);
+    if (layer) {
+      mapRef.current?.setLayerVisible(id, !layer.visible);
+    }
+  }, [layers]);
+
+  const handleChangeOpacity = useCallback((id: string, opacity: number) => {
+    setLayers((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, opacity } : l))
+    );
+    mapRef.current?.setLayerOpacity(id, opacity);
+  }, []);
+
+  // ─── Derived ──────────────────────────────────────────────────────────────
 
   const confidence = run?.claims?.[0]?.confidence
     ? Math.round(run.claims[0].confidence * 100)
@@ -206,8 +243,9 @@ function InsightsContent() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.1, ease }}
           >
+            {/* Tab bar */}
             <div className="flex items-center gap-1 mb-4 overflow-x-auto scrollbar-hide shrink-0 pb-1">
-              {["Source", "Semantic", "Change", "Quality"].map(tab => (
+              {["Source", "Semantic", "Change", "Quality"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -216,16 +254,37 @@ function InsightsContent() {
                   }`}
                 >
                   {activeTab === tab && (
-                    <motion.div layoutId="insight-tab-bubble" className="absolute inset-0 bg-white/10 rounded-full border border-white/20" transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} />
+                    <motion.div
+                      layoutId="insight-tab-bubble"
+                      className="absolute inset-0 bg-white/10 rounded-full border border-white/20"
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                    />
                   )}
                   <span className="relative z-10">{tab} Layer</span>
                 </button>
               ))}
             </div>
+
+            {/* Map canvas area */}
             <div className="relative flex-1 rounded-3xl overflow-hidden border border-stroke min-h-[400px]">
-              <MapCanvas activeTab={activeTab} imageIds={run?.image_ids} />
-              <LayerManager />
-              {activeTab === "Change" && <PairComparison activeMode={compareMode} onModeChange={setCompareMode} />}
+              <MapCanvas
+                ref={mapRef}
+                activeTab={activeTab}
+                imageIds={run?.image_ids}
+                runId={runId ?? undefined}
+                layers={layers}
+                compareMode={compareMode}
+                activeTool={activeTool}
+                onToolChange={setActiveTool}
+              />
+              <LayerManager
+                layers={layers}
+                onToggleVisibility={handleToggleVisibility}
+                onChangeOpacity={handleChangeOpacity}
+              />
+              {activeTab === "Change" && (
+                <PairComparison activeMode={compareMode} onModeChange={setCompareMode} />
+              )}
             </div>
           </motion.div>
 

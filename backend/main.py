@@ -25,7 +25,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Routers — each mounted under /api/v1
 # ---------------------------------------------------------------------------
-from backend.api import experiments, exports, feedback, regions, titiler_service, ingestion, query  # noqa: E402
+from backend.api import experiments, exports, feedback, regions, titiler_service, ingestion, query, pixel_inspect  # noqa: E402
 
 app.include_router(ingestion.router,            prefix="/api/v1")
 app.include_router(query.router,                prefix="/api/v1")
@@ -34,6 +34,7 @@ app.include_router(exports.router,              prefix="/api/v1")
 app.include_router(feedback.router,             prefix="/api/v1")
 app.include_router(regions.router,              prefix="/api/v1")
 app.include_router(titiler_service.titiler_router, prefix="/api/v1")
+app.include_router(pixel_inspect.router,        prefix="/api/v1")
 
 # ---------------------------------------------------------------------------
 # Health

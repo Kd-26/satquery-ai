@@ -40,6 +40,65 @@ def _resolve_artifact_path(image_id: str) -> Path:
     return matches[0]
 
 
+def _resolve_mask_path(run_id: str, mask_name: str) -> Path:
+    """Finds a saved mask TIFF for a completed run under ./artifacts/{run_id}/masks/."""
+    masks_dir = Path(f"./artifacts/{run_id}/masks")
+    # mask_name may be passed with or without .tif extension
+    for ext in ("", ".tif", ".tiff"):
+        candidate = masks_dir / f"{mask_name}{ext}"
+        if candidate.exists():
+            return candidate
+    raise HTTPException(
+        status_code=404,
+        detail=f"No mask artifact found for run_id={run_id}, mask_name={mask_name}",
+    )
+
+
+def _build_tile_response(path: Path) -> dict:
+    """
+    Core logic shared by source-image and mask-tile resolve endpoints.
+    Opens the raster, computes WGS-84 bounds, and builds a TiTiler tile URL template.
+
+    For rasters with no CRS (e.g. plain JPEG/PNG uploads), returns a soft-warning
+    response (no_crs=true) instead of raising 422 — the frontend shows a yellow
+    warning banner and still renders the map canvas.
+    """
+    try:
+        with rasterio.open(path) as src:
+            crs = src.crs
+            bounds = src.bounds
+            width = src.width
+            height = src.height
+    except rasterio.errors.RasterioIOError as e:
+        raise HTTPException(status_code=422, detail=f"Could not open raster: {e}")
+
+    encoded_url = quote(str(path.resolve()), safe="")
+    no_crs = crs is None
+
+    if no_crs:
+        # Soft fallback: return pixel-space extents. The frontend will show a
+        # "Upload a georeferenced GeoTIFF" warning but won't crash.
+        bounds_4326 = [0.0, 0.0, float(width), float(height)]
+    else:
+        bounds_4326 = list(transform_bounds(crs, "EPSG:4326", *bounds))
+
+    if _TITILER_AVAILABLE:
+        raw_tile_template = f"/api/v1/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}.png?url={encoded_url}"
+    else:
+        raw_tile_template = f"/api/v1/tiles/{{z}}/{{x}}/{{y}}?url={encoded_url}"
+
+    return {
+        "tile_url_template": raw_tile_template,
+        "bounds": bounds_4326,
+        "titiler_available": _TITILER_AVAILABLE,
+        "no_crs": no_crs,
+        "crs_warning": (
+            "Raster has no CRS — displayed at pixel coordinates only. "
+            "Upload a georeferenced GeoTIFF for accurate map placement and area measurements in hectares."
+        ) if no_crs else None,
+    }
+
+
 @titiler_router.get("/resolve/{image_id}")
 def resolve_tile_info(image_id: str):
     """
@@ -47,37 +106,29 @@ def resolve_tile_info(image_id: str):
     geographic bounds (EPSG:4326), so the frontend can add a raster source to
     MapLibre GL without ever knowing the server's filesystem layout.
 
-    Returns 404 (not a silent fallback) if the artifact is missing, and a
-    422 if the raster has no CRS/transform to compute bounds from — georeferencing
-    is verified, never assumed.
+    Returns 404 if the artifact is missing.
+    Returns a soft-warning response (no_crs=true) if the raster has no CRS
+    instead of a hard 422 — the frontend is responsible for showing a user-friendly
+    warning banner rather than displaying a black map.
     """
     path = _resolve_artifact_path(image_id)
+    result = _build_tile_response(path)
+    result["image_id"] = image_id
+    return result
 
-    try:
-        with rasterio.open(path) as src:
-            crs = src.crs
-            bounds = src.bounds
-    except rasterio.errors.RasterioIOError as e:
-        raise HTTPException(status_code=422, detail=f"Could not open raster: {e}")
 
-    if crs is None:
-        raise HTTPException(
-            status_code=422,
-            detail="Raster has no CRS — cannot compute map bounds. Upload a georeferenced GeoTIFF.",
-        )
+@titiler_router.get("/masks/{run_id}/{mask_name}/resolve")
+def resolve_mask_tile_info(run_id: str, mask_name: str):
+    """
+    Resolves a saved mask TIF for a completed run to a TiTiler tile URL template.
+    Used by the frontend (MapCanvas) to overlay Semantic / Change / Quality masks
+    on top of the source raster when the user clicks a layer tab.
 
-    bounds_4326 = transform_bounds(crs, "EPSG:4326", *bounds)
-
-    encoded_url = quote(str(path.resolve()), safe="")
-    if _TITILER_AVAILABLE:
-        raw_tile_template = f"/api/v1/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}.png?url={encoded_url}"
-    else:
-        # Mock fallback still returns a usable template shape for frontend dev
-        raw_tile_template = f"/api/v1/tiles/{{z}}/{{x}}/{{y}}?url={encoded_url}"
-
-    return {
-        "image_id": image_id,
-        "tile_url_template": raw_tile_template,
-        "bounds": list(bounds_4326),  # [west, south, east, north]
-        "titiler_available": _TITILER_AVAILABLE,
-    }
+    Returns 404 if the mask has not been generated for this run yet.
+    Returns soft-warning (no_crs=true) for ungeoreferenced masks.
+    """
+    path = _resolve_mask_path(run_id, mask_name)
+    result = _build_tile_response(path)
+    result["run_id"] = run_id
+    result["mask_name"] = mask_name
+    return result
