@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import ExperimentBuilder from "@/components/lab/ExperimentBuilder";
 import ParameterConsole from "@/components/lab/ParameterConsole";
@@ -29,6 +29,18 @@ export default function LabPage() {
   const [creating, setCreating] = useState(false);
   const [experiment, setExperiment] = useState<ExperimentResult | null>(null);
   const [expError, setExpError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string>("");
+
+  // Load notes from localStorage whenever the selected run changes
+  useEffect(() => {
+    const stored = localStorage.getItem(`lab-notes-${selectedRunId}`);
+    setNotes(stored ?? "");
+  }, [selectedRunId]);
+
+  const handleNotesChange = (value: string) => {
+    setNotes(value);
+    localStorage.setItem(`lab-notes-${selectedRunId}`, value);
+  };
 
   const handleCreateExperiment = async (paramOverrides: Record<string, unknown>) => {
     setCreating(true);
@@ -206,9 +218,14 @@ export default function LabPage() {
               <div className="mt-6 pt-5 border-t border-stroke">
                 <h4 className="text-xs text-muted uppercase tracking-wider mb-3">Research Notes</h4>
                 <textarea
-                  className="w-full bg-bg border border-stroke rounded-2xl p-3 text-sm text-text-primary placeholder:text-muted/50 outline-none resize-none min-h-[80px] text-xs leading-relaxed"
+                  value={notes}
+                  onChange={(e) => handleNotesChange(e.target.value)}
+                  className="w-full bg-bg border border-stroke rounded-2xl p-3 text-sm text-text-primary placeholder:text-muted/50 outline-none resize-none min-h-[80px] text-xs leading-relaxed focus:border-sky-500/50 transition-colors"
                   placeholder="Record hypothesis, observations, and conclusions for this experiment…"
                 />
+                {notes && (
+                  <p className="text-[10px] text-muted/60 mt-1 text-right">Auto-saved to browser storage</p>
+                )}
               </div>
             </div>
           </motion.div>

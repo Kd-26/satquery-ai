@@ -1,28 +1,37 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { ChevronRight, Activity, Bell, User } from "lucide-react";
+import { ChevronRight, Activity, Bell, User, Menu } from "lucide-react";
 import { useState } from "react";
 import JobCentre from "./JobCentre";
 import { useMode } from "@/contexts/ModeContext";
+import { useSidebarStore } from "@/lib/sidebarStore";
 
 export default function AppTopbar() {
   const pathname = usePathname();
   const [jobCentreOpen, setJobCentreOpen] = useState(false);
   const { mode, setMode } = useMode();
+  const { toggleMobileOpen } = useSidebarStore();
 
   // Generate breadcrumb from pathname
   const paths = pathname?.split("/").filter(Boolean) || [];
 
   return (
     <>
-      <div className="h-16 border-b border-stroke bg-bg/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-30">
-        {/* Breadcrumb */}
+      <div className="h-16 border-b border-stroke bg-bg/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 sticky top-0 z-30">
+        {/* Left: Mobile hamburger + Breadcrumb */}
         <div className="flex items-center text-sm">
-          <span className="text-muted">App</span>
+          <button
+            onClick={toggleMobileOpen}
+            className="p-1.5 md:hidden text-muted hover:text-text-primary rounded-lg hover:bg-white/5 mr-2"
+            title="Toggle Menu"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+          <span className="text-muted hidden sm:inline">App</span>
           {paths.map((p) => (
             <div key={p} className="flex items-center">
-              <ChevronRight className="w-3.5 h-3.5 text-muted/50 mx-2" />
+              <ChevronRight className="w-3.5 h-3.5 text-muted/50 mx-1 sm:mx-2" />
               <span className="text-text-primary capitalize">{p}</span>
             </div>
           ))}

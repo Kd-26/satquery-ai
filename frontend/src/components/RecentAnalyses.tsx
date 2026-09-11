@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -14,7 +14,7 @@ const analyses = [
   },
   {
     slug: "urban-sprawl",
-    title: "Urban Sprawl ΓÇô Region 4",
+    title: "Urban Sprawl – Region 4",
     type: "Optical Segmentation",
     gradient: "from-violet-500 via-fuchsia-400/60 to-transparent",
     tags: ["Landsat 9", "SAR"],
@@ -176,7 +176,7 @@ const RecentAnalyses = () => {
                   <div className="absolute inset-0 flex items-center justify-center z-20 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
                     <div className={`rounded-full p-[1px] animated-gradient-border bg-gradient-to-r ${analysis.gradient}`}>
                       <div className="px-4 py-2 md:px-5 rounded-full bg-white text-black text-xs md:text-base font-medium">
-                        <span className="font-body">View ΓÇö </span>
+                        <span className="font-body">View — </span>
                         <span className="font-display italic">{analysis.title}</span>
                       </div>
                     </div>

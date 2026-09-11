@@ -76,7 +76,7 @@ const Contact = () => {
               {[...Array(10)].map((_, i) => (
                 <span key={i} className="text-5xl md:text-7xl lg:text-8xl font-display italic text-text-primary/10 mx-4 md:mx-8">
                   BUILDING THE FUTURE
-                  <span className="mx-4 md:mx-8">ΓÇó</span>
+                  <span className="mx-4 md:mx-8">•</span>
                 </span>
               ))}
             </div>

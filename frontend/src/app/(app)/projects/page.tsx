@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Search, Filter, FolderOpen, Copy, RotateCcw, ChevronRight, CalendarDays } from "lucide-react";
+import { Search, Filter, FolderOpen, Copy, RotateCcw, ChevronRight, CalendarDays, LayoutGrid, List, Check } from "lucide-react";
 
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 
@@ -30,6 +30,14 @@ export default function ProjectsPage() {
   const [sensorFilter, setSensorFilter] = useState("All Sensors");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [clonedSlug, setClonedSlug] = useState<string | null>(null);
+
+  const handleClone = (e: React.MouseEvent, slug: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setClonedSlug(slug);
+    setTimeout(() => setClonedSlug(null), 2500);
+  };
 
   const filtered = ALL_PROJECTS.filter(p => {
     const matchStatus = statusFilter === "All" || p.status === statusFilter;
@@ -105,77 +113,157 @@ export default function ProjectsPage() {
           </select>
         </motion.div>
 
-        {/* Results Count */}
+        {/* Results Bar with Grid/List switcher */}
         <div className="flex items-center justify-between mb-5">
           <p className="text-sm text-muted">{filtered.length} project{filtered.length !== 1 ? "s" : ""} found</p>
+          <div className="flex items-center bg-surface border border-stroke rounded-full p-1 gap-1">
+            <button
+              onClick={() => setView("grid")}
+              className={`p-1.5 rounded-full transition-colors ${view === "grid" ? "bg-text-primary text-bg" : "text-muted hover:text-text-primary"}`}
+              title="Grid View"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setView("list")}
+              className={`p-1.5 rounded-full transition-colors ${view === "list" ? "bg-text-primary text-bg" : "text-muted hover:text-text-primary"}`}
+              title="List View"
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Grid */}
+        {/* Cloned Toast Notice */}
+        {clonedSlug && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mb-4 bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs px-4 py-2.5 rounded-2xl flex items-center justify-between"
+          >
+            <span className="flex items-center gap-2">
+              <Check className="w-4 h-4" />
+              Project config copied to clipboard! Ready to run in Analysis Workspace.
+            </span>
+          </motion.div>
+        )}
+
+        {/* Content: Grid or List */}
         {filtered.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-            {filtered.map((project, i) => {
-              const col = i % 3 === 0 ? "md:col-span-7" : i % 3 === 1 ? "md:col-span-5" : "md:col-span-12";
-              return (
-                <motion.div
-                  key={project.slug}
-                  className={col}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: i * 0.06, ease }}
-                >
-                  <Link href="/insights">
-                    <div className="group bg-surface border border-stroke rounded-3xl aspect-[4/3] relative overflow-hidden transition-colors duration-300 hover:border-transparent">
-                      {/* Gradient bg */}
-                      <div className={`absolute inset-0 bg-gradient-to-br ${project.gradient} opacity-30 group-hover:opacity-50 transition-opacity duration-500`} />
-                      
-                      {/* Halftone pattern */}
-                      <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle, #000 1px, transparent 1px)", backgroundSize: "4px 4px" }} />
-                      
-                      {/* Grid lines */}
-                      <div className="absolute inset-0 opacity-5" style={{ backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`, backgroundSize: "40px 40px" }} />
+          view === "grid" ? (
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+              {filtered.map((project, i) => {
+                const col = i % 3 === 0 ? "md:col-span-7" : i % 3 === 1 ? "md:col-span-5" : "md:col-span-12";
+                return (
+                  <motion.div
+                    key={project.slug}
+                    className={col}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5, delay: i * 0.06, ease }}
+                  >
+                    <Link href="/insights">
+                      <div className="group bg-surface border border-stroke rounded-3xl aspect-[4/3] relative overflow-hidden transition-colors duration-300 hover:border-transparent">
+                        <div className={`absolute inset-0 bg-gradient-to-br ${project.gradient} opacity-30 group-hover:opacity-50 transition-opacity duration-500`} />
+                        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle, #000 1px, transparent 1px)", backgroundSize: "4px 4px" }} />
+                        <div className="absolute inset-0 opacity-5" style={{ backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`, backgroundSize: "40px 40px" }} />
 
-                      {/* Top meta */}
-                      <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
-                        <span className="text-xs text-muted/70 flex items-center gap-1.5">
-                          <CalendarDays className="w-3 h-3" />
-                          {project.date}
-                        </span>
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColor[project.status]}`}>{project.status}</span>
-                      </div>
-
-                      {/* Hover overlay */}
-                      <div className="absolute inset-0 bg-bg/70 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                      <div className="absolute inset-0 backdrop-blur-[0px] group-hover:backdrop-blur-lg opacity-0 group-hover:opacity-100 transition-all duration-500" />
-
-                      {/* Content */}
-                      <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
-                        <div className="flex flex-wrap gap-1.5 mb-3">
-                          {project.tags.map(tag => (
-                            <span key={tag} className="text-[10px] uppercase tracking-wider text-muted bg-black/30 px-2 py-0.5 rounded-full border border-white/10">{tag}</span>
-                          ))}
+                        <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
+                          <span className="text-xs text-muted/70 flex items-center gap-1.5">
+                            <CalendarDays className="w-3 h-3" />
+                            {project.date}
+                          </span>
+                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColor[project.status]}`}>{project.status}</span>
                         </div>
-                        <p className="text-xs text-muted uppercase tracking-wider mb-1">{project.type}</p>
-                        <h3 className="text-lg text-text-primary font-medium">{project.title}</h3>
-                        <p className="text-xs text-muted mt-1">{project.region}</p>
-                      </div>
 
-                      {/* Hover CTA */}
-                      <div className="absolute inset-0 flex items-center justify-center z-20 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
-                        <div className="flex gap-3">
-                          <span className="px-5 py-2 rounded-full bg-white text-black text-xs font-medium flex items-center gap-1.5">
-                            <FolderOpen className="w-3.5 h-3.5" /> Open
-                          </span>
-                          <span className="px-5 py-2 rounded-full bg-white/10 backdrop-blur-sm text-white text-xs font-medium flex items-center gap-1.5 border border-white/20">
-                            <Copy className="w-3.5 h-3.5" /> Clone
-                          </span>
+                        <div className="absolute inset-0 bg-bg/70 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                        <div className="absolute inset-0 backdrop-blur-[0px] group-hover:backdrop-blur-lg opacity-0 group-hover:opacity-100 transition-all duration-500" />
+
+                        <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
+                          <div className="flex flex-wrap gap-1.5 mb-3">
+                            {project.tags.map(tag => (
+                              <span key={tag} className="text-[10px] uppercase tracking-wider text-muted bg-black/30 px-2 py-0.5 rounded-full border border-white/10">{tag}</span>
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted uppercase tracking-wider mb-1">{project.type}</p>
+                          <h3 className="text-lg text-text-primary font-medium">{project.title}</h3>
+                          <p className="text-xs text-muted mt-1">{project.region}</p>
+                        </div>
+
+                        <div className="absolute inset-0 flex items-center justify-center z-20 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                          <div className="flex gap-3">
+                            <span className="px-5 py-2 rounded-full bg-white text-black text-xs font-medium flex items-center gap-1.5">
+                              <FolderOpen className="w-3.5 h-3.5" /> Open
+                            </span>
+                            <button
+                              onClick={(e) => handleClone(e, project.slug)}
+                              className="px-5 py-2 rounded-full bg-white/10 backdrop-blur-sm text-white text-xs font-medium flex items-center gap-1.5 border border-white/20 hover:bg-white/20 transition-colors"
+                            >
+                              <Copy className="w-3.5 h-3.5" /> Clone
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </Link>
-                </motion.div>
-              );
-            })}
-          </div>
+                    </Link>
+                  </motion.div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-surface border border-stroke rounded-3xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-bg border-b border-stroke">
+                    <tr>
+                      {["Project", "Type", "Sensor", "Region", "Date", "Status", "Actions"].map(h => (
+                        <th key={h} className="px-5 py-3.5 text-xs font-medium text-muted uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stroke">
+                    {filtered.map((project) => (
+                      <tr key={project.slug} className="group hover:bg-white/5 transition-colors">
+                        <td className="px-5 py-4">
+                          <Link href="/insights" className="font-medium text-text-primary hover:text-sky-400 transition-colors">
+                            {project.title}
+                          </Link>
+                          <div className="flex gap-1 mt-1">
+                            {project.tags.slice(0, 2).map(tag => (
+                              <span key={tag} className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-bg text-muted border border-stroke">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-xs text-muted">{project.type}</td>
+                        <td className="px-5 py-4 text-xs text-muted font-mono">{project.sensor}</td>
+                        <td className="px-5 py-4 text-xs text-muted">{project.region}</td>
+                        <td className="px-5 py-4 text-xs text-muted">{project.date}</td>
+                        <td className="px-5 py-4">
+                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColor[project.status]}`}>{project.status}</span>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            <Link href="/insights" className="text-xs text-sky-400 hover:underline flex items-center gap-1">
+                              <FolderOpen className="w-3 h-3" /> View
+                            </Link>
+                            <button
+                              onClick={(e) => handleClone(e, project.slug)}
+                              className="text-xs text-muted hover:text-text-primary p-1 rounded hover:bg-white/5"
+                              title="Clone"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
         ) : (
           <div className="text-center py-24 text-muted">
             <p className="text-4xl font-display italic mb-4">No results</p>

@@ -48,7 +48,7 @@ export default function AnalyzePage() {
         </motion.div>
 
         {/* Step Indicator */}
-        <StepIndicator currentStep={step} />
+        <StepIndicator currentStep={step} onStepClick={setStep} />
 
         {/* Step Content */}
         <div className="relative mt-8">

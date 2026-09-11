@@ -14,7 +14,7 @@ import {
   X,
   Home
 } from "lucide-react";
-import { useState } from "react";
+import { useSidebarStore } from "@/lib/sidebarStore";
 import { motion, AnimatePresence } from "framer-motion";
 
 const NAV_ITEMS = [
@@ -27,21 +27,31 @@ const NAV_ITEMS = [
 
 export default function AppSidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  const { collapsed, toggleCollapsed, mobileOpen, setMobileOpen } = useSidebarStore();
 
   return (
     <div 
       className={`fixed top-0 left-0 h-screen bg-surface border-r border-stroke z-40 transition-all duration-300 flex flex-col ${
-        collapsed ? "w-16" : "w-64"
+        collapsed ? "md:w-16" : "md:w-64"
+      } w-64 ${
+        mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0"
       }`}
     >
       {/* Header */}
       <div className="h-16 flex items-center px-4 border-b border-stroke shrink-0">
         <button 
-          onClick={() => setCollapsed(!collapsed)}
-          className="p-1.5 hover:bg-white/5 rounded-lg text-muted hover:text-text-primary transition-colors mr-2 shrink-0"
+          onClick={toggleCollapsed}
+          className="hidden md:flex p-1.5 hover:bg-white/5 rounded-lg text-muted hover:text-text-primary transition-colors mr-2 shrink-0 items-center justify-center"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="w-4 h-4" /> : <X className="w-4 h-4" />}
+        </button>
+        <button 
+          onClick={() => setMobileOpen(false)}
+          className="md:hidden p-1.5 hover:bg-white/5 rounded-lg text-muted hover:text-text-primary transition-colors mr-2 shrink-0 flex items-center justify-center"
+          title="Close menu"
+        >
+          <X className="w-4 h-4" />
         </button>
         
         <AnimatePresence>
@@ -75,6 +85,7 @@ export default function AppSidebar() {
             <Link
               key={item.name}
               href={item.href}
+              onClick={() => setMobileOpen(false)}
               className={`flex items-center px-3 py-2.5 rounded-xl transition-colors group relative ${
                 isActive 
                   ? "bg-text-primary text-bg" 
@@ -111,6 +122,7 @@ export default function AppSidebar() {
       <div className="p-3 border-t border-stroke shrink-0">
         <Link
           href="/settings"
+          onClick={() => setMobileOpen(false)}
           className={`flex items-center px-3 py-2.5 rounded-xl transition-colors group relative ${
             pathname === "/settings" 
               ? "bg-text-primary text-bg" 

@@ -1,32 +1,32 @@
-﻿"use client";
+"use client";
 
 import { motion } from "framer-motion";
 
 const insights = [
   {
     title: "Interpreting SAR Backscatter for Flood Detection",
-    tag: "SAR ┬╖ Tutorial",
+    tag: "SAR · Tutorial",
     readTime: "6 min read",
     date: "Sep 01, 2026",
     gradient: "from-sky-600/30 to-blue-900/10",
   },
   {
     title: "NDVI Thresholds for Agricultural Health Monitoring",
-    tag: "Optical ┬╖ Research",
+    tag: "Optical · Research",
     readTime: "5 min read",
     date: "Aug 24, 2026",
     gradient: "from-emerald-600/30 to-green-900/10",
   },
   {
     title: "Temporal Analysis: Change Detection Best Practices",
-    tag: "Multitemporal ┬╖ Guide",
+    tag: "Multitemporal · Guide",
     readTime: "7 min read",
     date: "Aug 17, 2026",
     gradient: "from-violet-600/30 to-indigo-900/10",
   },
   {
     title: "Understanding CRS & Georeferencing in GeoTIFF",
-    tag: "Fundamentals ┬╖ Explainer",
+    tag: "Fundamentals · Explainer",
     readTime: "5 min read",
     date: "Aug 10, 2026",
     gradient: "from-amber-600/30 to-orange-900/10",
@@ -95,7 +95,7 @@ const IntelReports = () => {
             >
               {/* Gradient badge */}
               <div className={`relative w-24 h-24 sm:w-[100px] sm:h-[100px] rounded-full overflow-hidden shrink-0 border-2 border-transparent group-hover:border-stroke transition-all duration-500 bg-gradient-to-br ${entry.gradient} flex items-center justify-center`}>
-                <span className="text-xs text-muted/60 uppercase tracking-wider font-medium text-center px-2 leading-tight">{entry.tag.split(" ┬╖ ")[0]}</span>
+                <span className="text-xs text-muted/60 uppercase tracking-wider font-medium text-center px-2 leading-tight">{entry.tag.split(" · ")[0]}</span>
               </div>
 
               {/* Content */}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { User, Bell, Shield, Database, Moon, ChevronRight, Check } from "lucide-react";
+import { useMode } from "@/contexts/ModeContext";
 
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 
@@ -10,7 +11,7 @@ const SECTIONS = ["Account", "Preferences", "Notifications", "Storage & Privacy"
 
 export default function SettingsPage() {
   const [section, setSection] = useState("Account");
-  const [mode, setMode] = useState("simple");
+  const { mode, setMode } = useMode();
   const [notifs, setNotifs] = useState({ email: true, inApp: true, failureAlerts: true, jobComplete: false });
 
   return (
@@ -110,7 +111,7 @@ export default function SettingsPage() {
                   <h3 className="text-sm font-medium text-text-primary mb-1">Default Analysis Mode</h3>
                   <p className="text-xs text-muted mb-4">Controls which mode is selected when you start a new analysis.</p>
                   <div className="flex items-center bg-bg border border-stroke rounded-full p-0.5 w-fit">
-                    {["simple", "scientific"].map(m => (
+                    {(["simple", "scientific"] as const).map(m => (
                       <button
                         key={m}
                         onClick={() => setMode(m)}

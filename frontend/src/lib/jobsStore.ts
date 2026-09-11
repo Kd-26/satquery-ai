@@ -31,6 +31,8 @@ interface JobsState {
   /** Requests cancellation of a run via the API; SSE will reflect the result. */
   cancelJob: (runId: string) => Promise<void>;
   removeJob: (runId: string) => void;
+  /** Removes all finished (done / failed / cancelled) jobs from the list. */
+  clearFinished: () => void;
 }
 
 // EventSource handles live outside the store's serializable state.
@@ -101,6 +103,22 @@ export const useJobsStore = create<JobsState>((set, get) => ({
       const rest = { ...s.jobs };
       delete rest[runId];
       return { jobs: rest };
+    });
+  },
+
+  clearFinished: () => {
+    set((s) => {
+      const kept: Record<string, TrackedJob> = {};
+      for (const [id, job] of Object.entries(s.jobs)) {
+        if (job.status === "pending" || job.status === "running") {
+          kept[id] = job;
+        } else {
+          // clean up SSE subscription if somehow still active
+          _subscriptions[id]?.();
+          delete _subscriptions[id];
+        }
+      }
+      return { jobs: kept };
     });
   },
 }));

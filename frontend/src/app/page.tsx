@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { AnimatePresence } from "framer-motion";
@@ -7,6 +7,7 @@ import Hero from "@/components/Hero";
 import RecentAnalyses from "@/components/RecentAnalyses";
 import Stats from "@/components/Stats";
 import IntelReports from "@/components/Journal";
+import Footer from "@/components/Footer";
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -23,8 +24,10 @@ export default function Home() {
           <RecentAnalyses />
           <Stats />
           <IntelReports />
+          <Footer />
         </main>
       )}
     </>
   );
 }
+

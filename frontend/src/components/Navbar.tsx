@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -9,6 +9,8 @@ const NAV_LINKS = [
   { name: "Analyze", href: "/analyze" },
   { name: "Projects", href: "/projects" },
   { name: "Insights", href: "/insights" },
+  { name: "Lab", href: "/lab" },
+  { name: "Registry", href: "/registry" },
 ];
 
 const Navbar = () => {
@@ -87,7 +89,7 @@ const Navbar = () => {
             style={{ inset: "-2px" }}
           />
           <span className="relative z-10 flex items-center gap-1 bg-surface rounded-full px-3 sm:px-4 py-1.5 sm:py-2 -mx-3 sm:-mx-4 -my-1.5 sm:-my-2 backdrop-blur-md">
-            New Analysis <span className="text-[10px]">Γåù</span>
+            New Analysis <span className="text-[10px]">↗</span>
           </span>
         </Link>
       </div>

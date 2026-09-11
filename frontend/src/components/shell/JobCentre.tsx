@@ -31,7 +31,9 @@ function stageLabel(stage: string): string {
 export default function JobCentre({ isOpen, onClose }: JobCentreProps) {
   const jobs = useJobsStore((s) => s.jobs);
   const cancelJob = useJobsStore((s) => s.cancelJob);
+  const clearFinished = useJobsStore((s) => s.clearFinished);
   const jobList = Object.values(jobs).sort((a, b) => b.createdAt - a.createdAt);
+  const hasFinished = jobList.some(j => j.status !== "pending" && j.status !== "running");
 
   return (
     <AnimatePresence>
@@ -57,12 +59,22 @@ export default function JobCentre({ isOpen, onClose }: JobCentreProps) {
                 <Activity className="w-4 h-4 text-sky-400" />
                 <span className="font-medium text-text-primary">Job Centre</span>
               </div>
-              <button
-                onClick={onClose}
-                className="p-1.5 text-muted hover:text-text-primary rounded-lg hover:bg-white/5 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {hasFinished && (
+                  <button
+                    onClick={clearFinished}
+                    className="text-xs text-muted hover:text-red-400 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10"
+                  >
+                    Clear finished
+                  </button>
+                )}
+                <button
+                  onClick={onClose}
+                  className="p-1.5 text-muted hover:text-text-primary rounded-lg hover:bg-white/5 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">

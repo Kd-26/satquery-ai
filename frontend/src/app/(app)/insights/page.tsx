@@ -94,8 +94,8 @@ function InsightsContent() {
     : null;
 
   return (
-    <div className="min-h-screen bg-bg h-screen flex flex-col">
-      <div className="flex-1 flex flex-col max-w-[1600px] w-full mx-auto px-6 md:px-10 lg:px-12 pt-8 pb-8 h-full">
+    <div className="flex-1 flex flex-col min-h-0 bg-bg">
+      <div className="flex-1 flex flex-col max-w-[1600px] w-full mx-auto px-6 md:px-10 lg:px-12 pt-6 pb-6 min-h-0">
 
         {/* Header */}
         <motion.div

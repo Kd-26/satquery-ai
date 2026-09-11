@@ -131,7 +131,9 @@ export default function MapCanvas({ activeTab, imageIds = [] }: MapCanvasProps) 
       )}
 
       {activeTab !== "Source" && primaryImageId && !hasOverlayForTab && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-surface/90 border border-stroke text-muted text-xs px-3 py-2 rounded-xl">
+        <div className={`absolute left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-surface/90 border border-stroke text-muted text-xs px-3 py-2 rounded-xl shadow-lg ${
+          activeTab === "Change" ? "top-16" : "top-4"
+        }`}>
           <AlertTriangle className="w-4 h-4 shrink-0 text-yellow-400" />
           <span>No {activeTab.toLowerCase()} mask available for this run yet.</span>
         </div>
@@ -143,41 +145,43 @@ export default function MapCanvas({ activeTab, imageIds = [] }: MapCanvasProps) 
           <button
             onClick={() => mapRef.current?.zoomIn()}
             className="p-2.5 text-muted hover:text-text-primary hover:bg-white/10 transition-colors border-b border-stroke/50"
+            title="Zoom In"
           >
             <Plus className="w-4 h-4" />
           </button>
           <button
             onClick={() => mapRef.current?.zoomOut()}
             className="p-2.5 text-muted hover:text-text-primary hover:bg-white/10 transition-colors border-b border-stroke/50"
+            title="Zoom Out"
           >
             <Minus className="w-4 h-4" />
           </button>
-          <button className="p-2.5 text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 transition-colors">
+          <button className="p-2.5 text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 transition-colors" title="Select">
             <MousePointer2 className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Tool Controls */}
-      <div className="absolute left-4 top-4 flex flex-col gap-2 z-10">
+      {/* Tool Controls — positioned on right below export to not collide with LayerManager */}
+      <div className="absolute right-4 top-16 flex flex-col gap-2 z-10">
         <div className="bg-surface/80 backdrop-blur-md border border-stroke rounded-xl overflow-hidden flex flex-col">
           <button className="p-2.5 text-muted hover:text-text-primary hover:bg-white/10 transition-colors border-b border-stroke/50" title="Inspect Pixel">
             <MousePointerClick className="w-4 h-4" />
           </button>
-          <button className="p-2.5 text-muted hover:text-text-primary hover:bg-white/10 transition-colors" title="Measure">
+          <button className="p-2.5 text-muted hover:text-text-primary hover:bg-white/10 transition-colors" title="Measure Distance / Area">
             <Ruler className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* Coordinate Bar — reflects the live MapLibre camera state */}
-      <div className="absolute bottom-4 left-4 z-10 flex gap-2">
+      <div className="absolute bottom-4 left-4 z-10 flex flex-wrap gap-1.5 max-w-[calc(100%-120px)] pointer-events-none">
         {[
           { label: "Lat", value: `${coords.lat.toFixed(4)}°` },
           { label: "Lon", value: `${coords.lng.toFixed(4)}°` },
           { label: "Zoom", value: coords.zoom.toFixed(1) },
         ].map((c) => (
-          <div key={c.label} className="bg-surface/80 backdrop-blur-md border border-stroke rounded-lg px-3 py-1.5 flex items-center gap-2">
+          <div key={c.label} className="bg-surface/80 backdrop-blur-md border border-stroke rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 shadow-sm">
             <span className="text-[10px] uppercase tracking-wider text-muted font-medium">{c.label}</span>
             <span className="text-xs text-text-primary font-mono">{c.value}</span>
           </div>

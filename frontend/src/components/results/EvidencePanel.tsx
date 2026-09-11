@@ -85,19 +85,28 @@ export default function EvidencePanel({ run, graph, loading }: EvidencePanelProp
             <h3 className="text-sm font-medium text-text-primary">Execution Record</h3>
           </div>
           <div className="bg-surface border border-stroke rounded-2xl p-1 overflow-hidden">
-            {traces.map((t, i) => (
-              <div
-                key={i}
-                className={`p-3 hover:bg-white/5 transition-colors flex justify-between items-center cursor-pointer ${
-                  i < traces.length - 1 ? "border-b border-stroke" : ""
-                }`}
-              >
-                <span className="text-sm text-muted">{t.model_or_tool}</span>
-                <span className="text-xs text-text-primary font-mono bg-bg px-2 py-1 rounded">
-                  {t.execution_time_ms}ms
-                </span>
-              </div>
-            ))}
+            {traces.map((t, i) => {
+              const label = t.step_name ?? t.model_id ?? t.model_or_tool ?? t.step ?? "Processing step";
+              const timeDisplay =
+                t.execution_time_ms != null
+                  ? `${t.execution_time_ms}ms`
+                  : typeof t.duration_s === "number"
+                  ? `${Math.round(t.duration_s * 1000)}ms`
+                  : t.status ?? "—";
+              return (
+                <div
+                  key={i}
+                  className={`p-3 hover:bg-white/5 transition-colors flex justify-between items-center ${
+                    i < traces.length - 1 ? "border-b border-stroke" : ""
+                  }`}
+                >
+                  <span className="text-xs text-muted truncate max-w-[220px]">{label}</span>
+                  <span className="text-xs text-text-primary font-mono bg-bg px-2 py-1 rounded ml-2 shrink-0">
+                    {timeDisplay}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
