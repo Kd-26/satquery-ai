@@ -10,6 +10,7 @@ def read_raster_metadata(path: str) -> dict:
             "crs": src.crs.to_string() if src.crs else None,
             "transform": [src.transform.a, src.transform.b, src.transform.c,
                           src.transform.d, src.transform.e, src.transform.f] if src.transform else None,
+            "bounds": [src.bounds.left, src.bounds.bottom, src.bounds.right, src.bounds.top],
             "nodata": src.nodatavals[0] if src.nodatavals else None
         }
 

@@ -26,7 +26,7 @@ def vv_vh_ratio(vv: SARRaster, vh: SARRaster) -> np.ndarray:
         raise ValueError(
             f"vv_vh_ratio requires linear representation; got "
             f"vv={vv.representation}, vh={vh.representation}. "
-            "dB subtraction is already a log-ratio — do not divide dB values."
+            "dB subtraction is already a log-ratio â€” do not divide dB values."
         )
         
     if vv.polarization != 'VV' or vh.polarization != 'VH':
@@ -51,3 +51,32 @@ def temporal_backscatter_diff(sar_t1: SARRaster, sar_t2: SARRaster) -> np.ndarra
         raise ValueError(f"Shape mismatch: {sar_t1.array.shape} vs {sar_t2.array.shape}")
         
     return sar_t2.array - sar_t1.array
+
+
+def linear_to_db(array: np.ndarray, floor: float = 1e-10) -> np.ndarray:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return 10.0 * np.log10(np.maximum(array.astype(np.float32), floor))
+
+
+def db_to_linear(array: np.ndarray) -> np.ndarray:
+    return np.power(10.0, array.astype(np.float32) / 10.0)
+
+
+def calibrate_sar(array: np.ndarray, scale: float = 1.0, offset: float = 0.0, output: str = "dB") -> dict:
+    linear = np.maximum(array.astype(np.float32) * scale + offset, 0.0)
+    calibrated = linear_to_db(linear) if output == "dB" else linear
+    return {"array": calibrated, "representation": output, "scale": scale, "offset": offset}
+
+
+def lee_filter(array: np.ndarray, size: int = 5) -> np.ndarray:
+    """Small dependency-free Lee speckle filter."""
+    if size < 3 or size % 2 == 0:
+        raise ValueError("Lee window size must be an odd integer >= 3")
+    pad = size // 2
+    padded = np.pad(array.astype(np.float32), pad, mode="reflect")
+    windows = np.lib.stride_tricks.sliding_window_view(padded, (size, size))
+    local_mean = windows.mean(axis=(-2, -1))
+    local_var = windows.var(axis=(-2, -1))
+    noise_var = float(np.nanmedian(local_var))
+    weight = local_var / (local_var + noise_var + 1e-8)
+    return local_mean + weight * (array - local_mean)

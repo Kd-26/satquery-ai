@@ -1,5 +1,8 @@
 from backend.schemas.input_profile import InputProfile
 from datetime import datetime
+from math import isclose
+
+import numpy as np
 
 def check_pair_compatibility(profile_a: InputProfile, profile_b: InputProfile) -> dict:
     results = {}
@@ -25,9 +28,33 @@ def check_pair_compatibility(profile_a: InputProfile, profile_b: InputProfile) -
 
     results['crs_match'] = crs_match
     
-    # In reality, this requires intersecting geotransformed bounding boxes
-    overlap_valid = True 
+    reprojectable = bool(profile_a.crs and profile_b.crs and profile_a.transform and profile_b.transform)
+    results['reprojectable'] = reprojectable
+    if profile_a.bounds and profile_b.bounds:
+        bounds_a = profile_a.bounds
+        bounds_b = profile_b.bounds
+        if profile_a.crs and profile_b.crs:
+            try:
+                from rasterio.warp import transform_bounds
+                bounds_a = transform_bounds(profile_a.crs, "EPSG:4326", *bounds_a, densify_pts=21)
+                bounds_b = transform_bounds(profile_b.crs, "EPSG:4326", *bounds_b, densify_pts=21)
+            except Exception:
+                pass
+        a_left, a_bottom, a_right, a_top = bounds_a
+        b_left, b_bottom, b_right, b_top = bounds_b
+        overlap_valid = max(a_left, b_left) < min(a_right, b_right) and max(a_bottom, b_bottom) < min(a_top, b_top)
+    else:
+        overlap_valid = profile_a.dimensions == profile_b.dimensions
     results['bounding_box_overlap'] = overlap_valid
+
+    if profile_a.transform and profile_b.transform:
+        grid_match = profile_a.dimensions == profile_b.dimensions and all(
+            isclose(float(a), float(b), rel_tol=1e-9, abs_tol=1e-9)
+            for a, b in zip(profile_a.transform, profile_b.transform)
+        )
+    else:
+        grid_match = profile_a.dimensions == profile_b.dimensions
+    results['grid_match'] = grid_match
     
     date_gap_days = None
     if profile_a.acquisition_date and profile_b.acquisition_date:
@@ -40,7 +67,28 @@ def check_pair_compatibility(profile_a: InputProfile, profile_b: InputProfile) -
     
     results['date_gap_days'] = date_gap_days
     
-    compatible = crs_match and overlap_valid
+    compatible = overlap_valid and (reprojectable or (crs_match and grid_match))
     results['compatible'] = compatible
     
     return results
+
+
+def align_to_reference(source: np.ndarray, source_profile: InputProfile, reference_profile: InputProfile, categorical: bool = False) -> dict:
+    """Reproject/resample a raster exactly onto a verified reference grid."""
+    if not source_profile.crs or not source_profile.transform or not reference_profile.crs or not reference_profile.transform:
+        raise ValueError("Alignment requires CRS and affine transforms for both rasters")
+    import rasterio
+    from affine import Affine
+    from rasterio.warp import Resampling, reproject
+
+    bands = source[np.newaxis, ...] if source.ndim == 2 else source
+    out = np.zeros((bands.shape[0], *reference_profile.dimensions), dtype=bands.dtype)
+    method = Resampling.nearest if categorical else Resampling.bilinear
+    for index in range(bands.shape[0]):
+        reproject(
+            bands[index], out[index],
+            src_transform=Affine(*source_profile.transform[:6]), src_crs=source_profile.crs,
+            dst_transform=Affine(*reference_profile.transform[:6]), dst_crs=reference_profile.crs,
+            resampling=method,
+        )
+    return {"array": out if source.ndim == 3 else out[0], "profile": reference_profile, "resampling": method.name}
