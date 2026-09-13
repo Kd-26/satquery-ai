@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     # NVIDIA NIM / VLM settings
     nim_api_base: str         = "https://integrate.api.nvidia.com/v1"
-    nim_api_key: str          = "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"
+    nim_api_key: str          = ""
     vlm_model_id: str         = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     vlm_max_tokens: int       = 8192
     vlm_reasoning_budget: int = 4096

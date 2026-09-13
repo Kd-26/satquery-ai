@@ -15,3 +15,8 @@ nbformat
 pystac
 numpy
 requests
+Pillow
+pyproj
+shapely
+reportlab
+titiler.core
