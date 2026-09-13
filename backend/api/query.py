@@ -23,6 +23,7 @@ router = APIRouter(tags=["query"])
 class QueryRequest(BaseModel):
     query: str
     image_ids: List[str]
+    external_image_consent: bool = False
 
 
 @router.post("/query")
@@ -35,7 +36,10 @@ async def submit_query(request: QueryRequest, background_tasks: BackgroundTasks)
     """
     run_id = str(uuid.uuid4())
     run_state.create_run(run_id, request.image_ids)
-    background_tasks.add_task(run_query_pipeline, run_id, request.query, request.image_ids)
+    background_tasks.add_task(
+        run_query_pipeline, run_id, request.query, request.image_ids,
+        request.external_image_consent,
+    )
     return {"status": "accepted", "run_id": run_id}
 
 
@@ -117,11 +121,24 @@ async def get_run_graph(run_id: uuid.UUID):
     """
     Returns the evidence graph nodes and edges for the run.
     """
-    # Mock behavior — Evidence Explorer graph wiring is tracked separately
-    # (architecture.md §15) and is additive, not part of Quick Query scope.
-    return {
-        "nodes": [
-            {"id": "reg_123", "type": "region", "label": "Region 1"}
-        ],
-        "edges": []
-    }
+    state = run_state.get_run(str(run_id))
+    if state is None or state.result is None:
+        raise HTTPException(status_code=404, detail="Completed run not found.")
+    nodes = []
+    edges = []
+    for image_id in state.image_ids:
+        nodes.append({"id": image_id, "type": "input", "label": image_id})
+    graph = state.result.get("tool_graph", {})
+    for node in graph.get("nodes", []):
+        nodes.append({"id": node["id"], "type": "tool", "label": node["tool"]})
+        for dependency in node.get("depends_on", []):
+            edges.append({"source": dependency, "target": node["id"]})
+        if not node.get("depends_on"):
+            edges.extend({"source": image_id, "target": node["id"]} for image_id in state.image_ids)
+    terminal_tool = graph.get("nodes", [{}])[-1].get("id") if graph.get("nodes") else None
+    for claim in state.result.get("claims", []):
+        claim_id = claim["region_id"]
+        nodes.append({"id": claim_id, "type": "claim", "label": claim["claim"]})
+        if terminal_tool:
+            edges.append({"source": terminal_tool, "target": claim_id})
+    return {"nodes": nodes, "edges": edges}

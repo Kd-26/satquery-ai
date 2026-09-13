@@ -17,20 +17,18 @@ async def get_region_metrics(
     """
     try:
         lineage = await get_node_lineage(session, region_id)
-    except Exception:
-        # If DB fails or isn't set up yet, return mock metrics so the frontend can still render
-        lineage = [
-            {"type": "measurement", "content": {"area_hectares": 14.2, "confidence": 0.88}},
-            {"type": "model", "content": {"model_id": "SEG_RGB_v1", "cloud_coverage_pct": 5.2, "fusion_weight": 0.7}},
-        ]
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Evidence database is unavailable") from exc
+    if not lineage:
+        raise HTTPException(status_code=404, detail="Region evidence was not found")
 
     metrics: Dict[str, Any] = {
         "area_hectares": 0.0,
         "confidence": 0.0,
         "cloud_coverage_pct": 0.0,
         "fusion_weight": 1.0,
-        "ndvi_mean": 0.65,      # Mock spectral values until VLM/executor is wired
-        "vh_backscatter": -15.2,
+        "ndvi_mean": None,
+        "vh_backscatter": None,
     }
 
     # Process lineage to extract real metrics if available
@@ -45,5 +43,10 @@ async def get_region_metrics(
                 metrics["cloud_coverage_pct"] = content["cloud_coverage_pct"]
             if "fusion_weight" in content:
                 metrics["fusion_weight"] = content["fusion_weight"]
+        elif node.get("type") == "tool":
+            if "ndvi_mean" in content:
+                metrics["ndvi_mean"] = content["ndvi_mean"]
+            if "vh_backscatter" in content:
+                metrics["vh_backscatter"] = content["vh_backscatter"]
 
     return metrics

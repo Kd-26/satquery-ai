@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
+import json
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import uuid
@@ -11,7 +12,10 @@ router = APIRouter(tags=["ingestion"])
 
 
 @router.post("/images")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(
+    file: UploadFile = File(...),
+    metadata: UploadFile | None = File(default=None),
+):
     """
     Accepts raw satellite image uploads (TIFF, PNG, etc).
 
@@ -21,7 +25,16 @@ async def upload_image(file: UploadFile = File(...)):
     """
     try:
         contents = await file.read()
-        image_id, has_preview = ingest_upload(contents, file.filename or "unknown.tif")
+        sidecar = None
+        if metadata is not None:
+            raw_metadata = await metadata.read()
+            if (metadata.filename or "").lower().endswith(".json"):
+                sidecar = json.loads(raw_metadata.decode("utf-8"))
+            else:
+                # Preserve SAFE XML / Landsat MTL beside the raster; the
+                # resolver parses it on inspection.
+                sidecar = {"_sidecar_filename": metadata.filename, "_sidecar_text": raw_metadata.decode("utf-8", errors="replace")}
+        image_id, has_preview = ingest_upload(contents, file.filename or "unknown.tif", sidecar)
         return {
             "status": "success",
             "image_id": image_id,
@@ -74,4 +87,3 @@ async def link_image_pair(request: PairRequest):
     """
     # Mock behavior until pair DB schema is fully defined
     return {"status": "success", "pair_id": str(uuid.uuid4())}
-

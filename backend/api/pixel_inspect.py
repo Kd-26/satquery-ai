@@ -5,19 +5,19 @@ Pixel-level inspection endpoint for the Inspect Pixel map tool.
 
 GET /api/v1/tiles/inspect?image_id=<id>&lat=<lat>&lon=<lon>
 
-Uses rasterio.dataset.sample() to extract the raw band values at the
-given geographic coordinate. Returns band labels (R/G/B, VV/VH, etc.)
-alongside the pixel values so the frontend popup can be descriptive.
+Reads the source raster at the requested coordinate and resolves band labels
+through the same GeoTIFF/STAC/SAFE/MTL metadata path as scientific tools.
 
 If the raster has no CRS (plain JPEG/PNG), falls back to interpreting
 lat/lon as pixel-space row/col — the frontend will warn the user.
 """
 from pathlib import Path
-from typing import Optional
-
 from fastapi import APIRouter, HTTPException, Query
 import rasterio
 from rasterio.transform import rowcol
+from rasterio.warp import transform as transform_coordinates
+
+from backend.controller.ingestion import inspect_image
 
 router = APIRouter(tags=["tiles"])
 
@@ -28,20 +28,6 @@ def _resolve_artifact_path(image_id: str) -> Path:
     if not matches:
         raise HTTPException(status_code=404, detail=f"No raster artifact found for image_id={image_id}")
     return matches[0]
-
-
-def _guess_band_labels(band_count: int, filename: str) -> list[str]:
-    """Heuristic band labelling matching ingestion.py logic."""
-    name = filename.lower()
-    if band_count == 2 or ("s1" in name or "sar" in name):
-        return ["VV", "VH"]
-    if band_count == 3:
-        return ["R", "G", "B"]
-    if band_count == 4:
-        return ["R", "G", "B", "NIR"]
-    if band_count == 13:
-        return ["B1", "B2(B)", "B3(G)", "B4(R)", "B5", "B6", "B7", "B8(NIR)", "B8A", "B9", "B10", "B11(SWIR1)", "B12(SWIR2)"]
-    return [f"Band {i + 1}" for i in range(band_count)]
 
 
 @router.get("/tiles/inspect")
@@ -71,6 +57,10 @@ def inspect_pixel(
     }
     """
     path = _resolve_artifact_path(image_id)
+    try:
+        metadata = inspect_image(image_id)
+    except (FileNotFoundError, OSError, ValueError, rasterio.errors.RasterioError) as exc:
+        raise HTTPException(status_code=422, detail=f"Could not resolve raster metadata: {exc}") from exc
 
     try:
         with rasterio.open(path) as src:
@@ -78,15 +68,7 @@ def inspect_pixel(
             transform = src.transform
             band_count = src.count
 
-            orig_name = ""
-            name_file = Path(f"./artifacts/{image_id}/filename.txt")
-            if name_file.exists():
-                try:
-                    orig_name = name_file.read_text()
-                except Exception:
-                    pass
-
-            band_labels = _guess_band_labels(band_count, orig_name or str(path.name))
+            band_labels = metadata["band_identities"]
 
             if crs is None:
                 # No CRS — treat lat/lon as pixel row/col (best effort)
@@ -95,14 +77,16 @@ def inspect_pixel(
                 no_crs = True
                 crs_warning = "Raster has no CRS — coordinates interpreted as pixel row/col."
             else:
-                # Geographic coordinate → pixel coordinate
-                pixel_row, pixel_col = rowcol(transform, lon, lat)
+                # Browser clicks are WGS-84; transform them into the raster CRS.
+                raster_x, raster_y = transform_coordinates("EPSG:4326", crs, [lon], [lat])
+                pixel_row, pixel_col = rowcol(transform, raster_x[0], raster_y[0])
                 no_crs = False
                 crs_warning = None
 
-            # Clamp to valid pixel bounds
-            pixel_row = max(0, min(int(pixel_row), src.height - 1))
-            pixel_col = max(0, min(int(pixel_col), src.width - 1))
+            pixel_row = int(pixel_row)
+            pixel_col = int(pixel_col)
+            if not (0 <= pixel_row < src.height and 0 <= pixel_col < src.width):
+                raise HTTPException(status_code=422, detail="Clicked coordinate is outside the raster extent")
 
             # Read all bands at this single pixel using a 1×1 window
             from rasterio.windows import Window
@@ -111,7 +95,7 @@ def inspect_pixel(
             pixel_values = [float(data[i, 0, 0]) for i in range(band_count)]
 
     except rasterio.errors.RasterioIOError as e:
-        raise HTTPException(status_code=422, detail=f"Could not read raster: {e}")
+        raise HTTPException(status_code=422, detail=f"Could not read raster: {e}") from e
 
     bands = [
         {"label": band_labels[i] if i < len(band_labels) else f"Band {i + 1}", "value": v}
@@ -127,4 +111,6 @@ def inspect_pixel(
         "bands": bands,
         "no_crs": no_crs,
         "crs_warning": crs_warning,
+        "band_identity_source": metadata["band_identity_source"],
+        "metadata_confidence": metadata["metadata_confidence"],
     }

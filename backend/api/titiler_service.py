@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
 import rasterio
+import numpy as np
 from rasterio.warp import transform_bounds
 
 try:
@@ -22,13 +23,14 @@ try:
     titiler_router.include_router(cog.router)
     _TITILER_AVAILABLE = True
 except ImportError:
-    # Fallback mock if titiler is not installed in the environment
+    # Keep route shape stable, but fail explicitly instead of returning JSON
+    # where the client expects raster tile bytes.
     titiler_router = APIRouter(prefix="/tiles")
     _TITILER_AVAILABLE = False
 
     @titiler_router.get("/{z}/{x}/{y}")
-    def mock_tile(z: int, x: int, y: int, url: str):
-        return {"message": "TiTiler tile endpoint mock", "z": z, "x": x, "y": y, "url": url}
+    def unavailable_tile(z: int, x: int, y: int, url: str):
+        raise HTTPException(status_code=503, detail="Raster tile service is not installed")
 
 
 def _resolve_artifact_path(image_id: str) -> Path:
@@ -77,6 +79,20 @@ def _build_tile_response(path: Path) -> dict:
             width = src.width
             height = src.height
             band_count = src.count
+            if band_count == 13:
+                indexes = [4, 3, 2]
+            elif band_count in (1, 2):
+                indexes = [1, 1, 1]
+            else:
+                indexes = list(range(1, min(band_count, 3) + 1))
+            sample = src.read(
+                indexes,
+                out_shape=(len(indexes), min(src.height, 512), min(src.width, 512)),
+            ).astype(np.float32)
+            finite = sample[np.isfinite(sample)]
+            display_min, display_max = np.percentile(finite, [2, 98]) if finite.size else (0.0, 1.0)
+            if display_max <= display_min:
+                display_max = display_min + 1.0
     except rasterio.errors.RasterioIOError as e:
         raise HTTPException(status_code=422, detail=f"Could not open raster: {e}")
 
@@ -90,29 +106,12 @@ def _build_tile_response(path: Path) -> dict:
     else:
         bounds_4326 = list(transform_bounds(crs, "EPSG:4326", *bounds))
 
-    # Determine the bidx override for this raster's band layout.
-    # TiTiler accepts repeated ?bidx= params: bidx=4&bidx=3&bidx=2
-    if band_count == 13:
-        # Sentinel-2 L1C/L2A standard 13-band order:
-        # band index 4 = B4 (Red 665 nm)
-        # band index 3 = B3 (Green 560 nm)
-        # band index 2 = B2 (Blue 490 nm)
-        bidx_suffix = "&bidx=4&bidx=3&bidx=2"
-    elif band_count == 2:
-        # SAR: VV (band 1) visualised as greyscale; VH not shown by default.
-        bidx_suffix = "&bidx=1&bidx=1&bidx=1"
-    elif band_count == 1:
-        # Panchromatic / DEM / single-pol
-        bidx_suffix = "&bidx=1&bidx=1&bidx=1"
-    else:
-        # 3-band RGB, 4-band RGBN, or other — let TiTiler use its default
-        # (first 3 bands), which is correct for these cases.
-        bidx_suffix = ""
+    band_query = "&".join(f"bidx={index}" for index in indexes)
 
     if _TITILER_AVAILABLE:
         raw_tile_template = (
-            f"/api/v1/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}.png"
-            f"?url={encoded_url}{bidx_suffix}"
+            f"/api/v1/tiles/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}.png"
+            f"?url={encoded_url}&{band_query}&rescale={float(display_min)},{float(display_max)}"
         )
     else:
         raw_tile_template = f"/api/v1/tiles/{{z}}/{{x}}/{{y}}?url={encoded_url}"
@@ -146,7 +145,6 @@ def resolve_tile_info(image_id: str):
     result = _build_tile_response(path)
     result["image_id"] = image_id
     return result
-
 
 @titiler_router.get("/masks/{run_id}/{mask_name}/resolve")
 def resolve_mask_tile_info(run_id: str, mask_name: str):
