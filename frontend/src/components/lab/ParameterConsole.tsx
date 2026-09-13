@@ -28,7 +28,7 @@ export default function ParameterConsole({
       morph_kernel_size: params.morphSize,
       confidence_threshold: params.confThresh,
     });
-  }, [params]);
+  }, [params, onOverridesChange]);
 
   const handleReset = () => setParams(DEFAULTS);
 

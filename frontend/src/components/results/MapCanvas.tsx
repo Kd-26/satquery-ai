@@ -103,19 +103,21 @@ function haversineKm(a: [number, number], b: [number, number]): number {
   return R * 2 * Math.asin(Math.sqrt(sin2));
 }
 
-// Shoelace area in km²
+// Geodesic polygon area on a sphere (Chamberlain-Duquette), returned in km².
 function polygonAreaKm2(pts: [number, number][]): number {
   if (pts.length < 3) return 0;
-  // Project to approximate metres using equirectangular at centroid lat
-  const lat0 = pts.reduce((s, p) => s + p[1], 0) / pts.length * (Math.PI / 180);
-  const mPerDegLat = 111_320;
-  const mPerDegLng = 111_320 * Math.cos(lat0);
-  const xy = pts.map(([lng, lat]) => [lng * mPerDegLng, lat * mPerDegLat]);
-  let area = 0;
-  for (let i = 0, j = xy.length - 1; i < xy.length; j = i++) {
-    area += (xy[j][0] + xy[i][0]) * (xy[j][1] - xy[i][1]);
+  const radiusKm = 6371.0088;
+  let sum = 0;
+  for (let i = 0; i < pts.length; i += 1) {
+    const previous = pts[(i + pts.length - 1) % pts.length];
+    const current = pts[i];
+    const next = pts[(i + 1) % pts.length];
+    const previousLng = previous[0] * Math.PI / 180;
+    const nextLng = next[0] * Math.PI / 180;
+    const currentLat = current[1] * Math.PI / 180;
+    sum += (nextLng - previousLng) * Math.sin(currentLat);
   }
-  return Math.abs(area) / 2 / 1e6; // m² → km²
+  return Math.abs(sum) * radiusKm * radiusKm / 2;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -125,9 +127,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
   ref
 ) {
   const containerRef  = useRef<HTMLDivElement>(null);
-  const container2Ref = useRef<HTMLDivElement>(null); // side-by-side second map
   const mapRef        = useRef<maplibregl.Map | null>(null);
-  const map2Ref       = useRef<maplibregl.Map | null>(null); // side-by-side second map instance
   const flickerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [ready, setReady]                       = useState(false);
@@ -152,6 +152,12 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
   const swipeDragging                           = useRef(false);
 
   const primaryImageId = imageIds[0];
+  const sourceLayerState = layers.find((layer) => layer.id === "source");
+  const sourceVisible = sourceLayerState?.visible !== false;
+  const sourceOpacity = sourceLayerState?.opacity ?? 100;
+  const overlayLayerState = layers.find((layer) => layer.id === activeTab.toLowerCase());
+  const overlayVisible = overlayLayerState?.visible !== false;
+  const overlayOpacity = overlayLayerState?.opacity ?? 70;
 
   // ─── Imperative handle for LayerManager → map ────────────────────────────
 
@@ -220,8 +226,8 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
         if (cancelled || !mapRef.current) return;
 
         // Show CRS warning instead of hard error
-        if ((info as any).no_crs) {
-          setCrsWarning((info as any).crs_warning ?? "No CRS — upload a georeferenced GeoTIFF for accurate positioning.");
+        if (info.no_crs) {
+          setCrsWarning(info.crs_warning ?? "No CRS — upload a georeferenced GeoTIFF for accurate positioning.");
         }
 
         if (map.getLayer(LAYER_SOURCE)) map.removeLayer(LAYER_SOURCE);
@@ -234,13 +240,12 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
         });
 
         // Respect current layer visibility from layers prop
-        const sourceLayer = layers.find(l => l.id === "source");
         map.addLayer({
           id: LAYER_SOURCE,
           type: "raster",
           source: SOURCE_SOURCE,
-          layout: { visibility: sourceLayer?.visible === false ? "none" : "visible" },
-          paint: { "raster-opacity": (sourceLayer?.opacity ?? 100) / 100 },
+          layout: { visibility: sourceVisible ? "visible" : "none" },
+          paint: { "raster-opacity": sourceOpacity / 100 },
         });
 
         const [west, south, east, north] = info.bounds;
@@ -255,7 +260,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
       });
 
     return () => { cancelled = true; };
-  }, [ready, primaryImageId]);
+  }, [ready, primaryImageId, sourceVisible, sourceOpacity]);
 
   // ─── Load overlay mask when tab changes ──────────────────────────────────
 
@@ -299,8 +304,6 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
 
       const sid = OVERLAY_SOURCES[activeTab];
       const lid = OVERLAY_LAYERS[activeTab];
-      const tabLayer = layers.find(l => l.id === activeTab.toLowerCase());
-
       if (map.getSource(sid)) map.removeSource(sid);
       map.addSource(sid, {
         type: "raster",
@@ -311,9 +314,9 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
         id: lid,
         type: "raster",
         source: sid,
-        layout: { visibility: tabLayer?.visible === false ? "none" : "visible" },
+        layout: { visibility: overlayVisible ? "visible" : "none" },
         paint: {
-          "raster-opacity": (tabLayer?.opacity ?? 70) / 100,
+          "raster-opacity": overlayOpacity / 100,
         },
       });
       setOverlayLoading(false);
@@ -324,7 +327,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
     });
 
     return () => { cancelled = true; };
-  }, [ready, activeTab, runId]);
+  }, [ready, activeTab, runId, overlayVisible, overlayOpacity]);
 
   // ─── Flicker mode ────────────────────────────────────────────────────────
 
@@ -470,13 +473,10 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
     if (pts.length < 2) return;
 
     const coords = closed && pts.length > 2 ? [...pts, pts[0]] : pts;
-    const geomType = closed && pts.length > 2 ? "Polygon" : "LineString";
-    const geomCoords = geomType === "Polygon" ? [coords] : coords;
-
     const lineSource = map.getSource("measure-line") as maplibregl.GeoJSONSource | undefined;
-    const lineGeoJson: GeoJSON.Feature = {
+    const lineGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
       type: "Feature",
-      geometry: { type: "LineString", coordinates: geomType === "Polygon" ? coords : coords } as any,
+      geometry: { type: "LineString", coordinates: coords },
       properties: {},
     };
 
@@ -530,7 +530,6 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
-  const isSideBySide = compareMode === "side" && activeTab !== "Source";
   const isBlend      = compareMode === "blend" && activeTab !== "Source";
   const isSwipe      = compareMode === "swipe" && activeTab !== "Source";
   const hasOverlay   = activeTab !== "Source";

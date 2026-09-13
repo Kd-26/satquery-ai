@@ -39,6 +39,7 @@ export interface PairResponse {
 export interface QueryRequest {
   query: string;
   image_ids: string[];
+  external_image_consent?: boolean;
 }
 
 export interface QueryResponse {
@@ -53,6 +54,13 @@ export interface Claim {
   confidence: number;
   tool?: string;            // e.g. "geometry.pixel_fraction" | "geometry.measure_regions"
   source_images?: string[];
+  unit?: string;
+  uncertainty?: number | null;
+  crs?: string | null;
+  source_bands?: string[];
+  tool_version?: string;
+  artifact_ref?: string | null;
+  derivation?: string[];
 }
 
 export interface TraceStep {
@@ -88,6 +96,22 @@ export interface RunResult {
   limitations?: string[];
   traces?: TraceStep[];
   image_ids?: string[];
+  route?: { mode: string; required_tools: string[]; reason: string; requires_segmentation: boolean; claim_policy: string };
+  tool_graph?: { nodes: Array<{ id: string; tool: string; depends_on: string[]; required: boolean; version: string }> };
+  tool_outputs?: Record<string, unknown>;
+}
+
+export interface RasterMetadata {
+  image_id: string;
+  dimensions: [number, number];
+  channel_count: number;
+  band_identities: string[];
+  band_identity_source: string;
+  metadata_confidence: number;
+  crs?: string | null;
+  bounds?: [number, number, number, number];
+  scales?: number[];
+  offsets?: number[];
 }
 
 export interface RunEventPayload {
@@ -155,11 +179,13 @@ export interface RegionMetrics {
  */
 export async function uploadImage(
   file: File,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  metadataFile?: File
 ): Promise<UploadImageResponse> {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append("file", file);
+    if (metadataFile) formData.append("metadata", metadataFile);
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/api/v1/images`);
@@ -485,4 +511,55 @@ export async function getRegionMetrics(regionId: string): Promise<RegionMetrics>
 
 export async function healthCheck(): Promise<{ status: string; app: string }> {
   return apiFetch("/health");
+}
+
+export async function getImageMetadata(imageId: string): Promise<RasterMetadata> {
+  return apiFetch(`/api/v1/images/${imageId}/metadata`);
+}
+
+export async function inspectRasterPixel(imageId: string, row: number, col: number) {
+  return apiFetch<{ row: number; col: number; values: number[]; bands: Array<string | null> }>(`/api/v1/images/${imageId}/pixel?row=${row}&col=${col}`);
+}
+
+export async function inspectRasterCoordinate(imageId: string, lon: number, lat: number) {
+  return apiFetch<{ row: number; col: number; values: number[]; bands: Array<string | null> }>(`/api/v1/images/${imageId}/pixel?lon=${lon}&lat=${lat}`);
+}
+
+export async function executeWorkbenchTool(imageIds: string[], tool: string): Promise<QueryResponse> {
+  return apiFetch<QueryResponse>("/api/v1/tools/execute", {
+    method: "POST",
+    body: JSON.stringify({ image_ids: imageIds, tool }),
+  });
+}
+
+export async function getRunHistory() {
+  return apiFetch<{ runs: Array<{ run_id: string; status: RunStatusValue; stage: string; progress: number; image_ids: string[]; updated_at: number }> }>("/api/v1/runs");
+}
+
+export async function getRunManifest(runId: string): Promise<Record<string, unknown>> {
+  return apiFetch(`/api/v1/runs/${runId}/manifest`);
+}
+
+export async function executeZonalStatistics(
+  imageId: string,
+  geometry: Record<string, unknown>,
+  band = 1,
+  geometryCrs = "EPSG:4326"
+) {
+  return apiFetch<{ operation_id: string; result: Record<string, unknown> }>("/api/v1/geospatial/zonal", {
+    method: "POST",
+    body: JSON.stringify({ image_id: imageId, geometry, band, geometry_crs: geometryCrs }),
+  });
+}
+
+export async function reprojectImage(
+  imageId: string,
+  targetCrs: string,
+  targetResolution?: number,
+  categorical = false
+) {
+  return apiFetch<{ operation_id: string; artifact_ref: string; crs: string; resampling: string }>("/api/v1/geospatial/reproject", {
+    method: "POST",
+    body: JSON.stringify({ image_id: imageId, target_crs: targetCrs, target_resolution: targetResolution, categorical }),
+  });
 }

@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
 import { Send, Sparkles, Lightbulb, AlertCircle } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { submitQuery, linkImagePair } from "@/lib/api";
 import { useJobsStore } from "@/lib/jobsStore";
 import type { UploadedFile } from "@/components/analyze/DropZone";
@@ -25,7 +23,7 @@ export default function QueryComposer({ onComplete, mode, files = [] }: QueryCom
   const [query, setQuery] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
+  const [externalImageConsent, setExternalImageConsent] = useState(false);
 
   const handleRun = async () => {
     if (!query.trim()) return;
@@ -45,7 +43,11 @@ export default function QueryComposer({ onComplete, mode, files = [] }: QueryCom
         });
       }
 
-      const res = await submitQuery({ query: query.trim(), image_ids: imageIds });
+      const res = await submitQuery({
+        query: query.trim(),
+        image_ids: imageIds,
+        external_image_consent: externalImageConsent,
+      });
       useJobsStore.getState().startTracking(res.run_id, query.trim().slice(0, 60));
       onComplete(res.run_id);
     } catch (err) {
@@ -122,6 +124,21 @@ export default function QueryComposer({ onComplete, mode, files = [] }: QueryCom
           <AlertCircle className="w-4 h-4 shrink-0" />
           <p className="text-sm">{error}</p>
         </div>
+      )}
+
+      {hasImages && (
+        <label className="flex items-start gap-3 rounded-2xl border border-stroke bg-surface px-4 py-3 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={externalImageConsent}
+            onChange={(event) => setExternalImageConsent(event.target.checked)}
+            className="mt-0.5 accent-sky-500"
+          />
+          <span>
+            Allow image previews to be sent to the configured external VLM for visual interpretation.
+            Deterministic scientific tools run locally and do not require this consent.
+          </span>
+        </label>
       )}
 
       <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-4">

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { UploadCloud, File as FileIcon, X, CheckCircle2, Image as ImageIcon, AlertCircle, Satellite } from "lucide-react";
+import { useState, useRef } from "react";
+import { UploadCloud, File as FileIcon, X, CheckCircle2, Image as ImageIcon, AlertCircle, Satellite, FileJson } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { uploadImage, getImagePreviewUrl } from "@/lib/api";
+import { uploadImage, getImagePreviewUrl, getImageMetadata, type RasterMetadata } from "@/lib/api";
 
 export type UploadedFile = {
   file: File;
@@ -14,6 +14,7 @@ export type UploadedFile = {
   status: "uploading" | "done" | "error";
   imageId?: string; // returned by backend after successful upload
   errorMsg?: string;
+  scientificMetadata?: RasterMetadata;
   metadata?: {
     type: "optical" | "sar" | "unknown";
     width: number;
@@ -31,7 +32,9 @@ interface DropZoneProps {
 export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProps) {
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [sidecar, setSidecar] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const sidecarInputRef = useRef<HTMLInputElement>(null);
 
   const processFile = (file: File) => {
     const isImage = file.type.startsWith("image/");
@@ -61,8 +64,9 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
           f.file.name === file.name ? { ...f, progress: pct } : f
         )
       );
-    })
-      .then((res) => {
+    }, sidecar ?? undefined)
+      .then(async (res) => {
+        const scientificMetadata = await getImageMetadata(res.image_id).catch(() => undefined);
         const previewUrl = getImagePreviewUrl(res.image_id);
         setFiles((prev) =>
           prev.map((f) =>
@@ -72,6 +76,7 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
                   progress: 100,
                   status: "done",
                   imageId: res.image_id,
+                  scientificMetadata,
                   // Always use the backend-generated preview for any file with has_preview=true.
                   // This covers: 13-band S2, 2-band SAR, 3/4-band GeoTIFF.
                   // For standard PNG/JPEG without a backend preview, keep the existing blob URL.
@@ -94,17 +99,14 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
       });
   };
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        const newFiles = Array.from(e.dataTransfer.files).slice(0, maxFiles - files.length);
-        newFiles.forEach(processFile);
-      }
-    },
-    [files.length, maxFiles]
-  );
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const newFiles = Array.from(e.dataTransfer.files).slice(0, maxFiles - files.length);
+      newFiles.forEach(processFile);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -140,6 +142,13 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
             multiple={maxFiles > 1}
             accept=".tif,.tiff,.jpg,.jpeg,.png"
           />
+          <input
+            type="file"
+            ref={sidecarInputRef}
+            onChange={(event) => setSidecar(event.target.files?.[0] ?? null)}
+            className="hidden"
+            accept=".json,.xml,.txt,.safe"
+          />
 
           <div className="w-16 h-16 rounded-full bg-stroke/40 flex items-center justify-center mb-5 group-hover:scale-105 transition-transform duration-300">
             <UploadCloud className="w-8 h-8 text-muted group-hover:text-text-primary transition-colors" />
@@ -161,6 +170,14 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
               Optical + SAR
             </span>
           </div>
+          <button
+            type="button"
+            onClick={(event) => { event.stopPropagation(); sidecarInputRef.current?.click(); }}
+            className="mt-4 flex items-center gap-2 rounded-full border border-stroke bg-bg px-3 py-1.5 text-xs text-muted hover:text-text-primary"
+          >
+            <FileJson className="h-3.5 w-3.5" />
+            {sidecar ? `Metadata: ${sidecar.name}` : "Attach STAC / SAFE / Landsat sidecar"}
+          </button>
         </div>
       )}
 

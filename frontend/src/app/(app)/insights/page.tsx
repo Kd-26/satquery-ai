@@ -2,7 +2,7 @@
 
 import { Suspense, useRef } from "react";
 import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useSearchParams } from "next/navigation";
 import MapCanvas, { type MapCanvasHandle, type LayerState, type ActiveTool, type CompareMode } from "@/components/results/MapCanvas";
 import LayerManager from "@/components/results/LayerManager";
@@ -10,6 +10,7 @@ import PairComparison from "@/components/results/PairComparison";
 import EvidencePanel from "@/components/results/EvidencePanel";
 import MeasurementTable from "@/components/results/MeasurementTable";
 import ConfidenceBar from "@/components/results/ConfidenceBar";
+import ProvenancePanel from "@/components/results/ProvenancePanel";
 import { Download, Share2, Printer, CheckCircle, Loader2, AlertCircle, Ban, XCircle } from "lucide-react";
 import { getRun, getRunGraph, downloadRunExport, cancelRun, type RunResult, type GraphData, type ExportFormat } from "@/lib/api";
 
@@ -297,6 +298,7 @@ function InsightsContent() {
             <ConfidenceBar confidence={confidence} />
             <MeasurementTable run={run} />
             <EvidencePanel run={run} graph={graph} loading={loading} />
+            <ProvenancePanel run={run} />
           </motion.div>
         </div>
       </div>

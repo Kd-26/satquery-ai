@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Info, Map as MapIcon, Database, Calendar, Tag, ShieldCheck } from "lucide-react";
+import { Info, Map as MapIcon, Database, Calendar, Tag } from "lucide-react";
 import type { UploadedFile } from "./DropZone";
 
 interface MetadataCardsProps {
@@ -15,6 +15,7 @@ export default function MetadataCards({ files }: MetadataCardsProps) {
   // Render metadata for the first file (expand later for multi-file comparison)
   const file = files[0];
   const meta = file.metadata;
+  const scientific = file.scientificMetadata;
 
   return (
     <div className="space-y-6">
@@ -46,7 +47,7 @@ export default function MetadataCards({ files }: MetadataCardsProps) {
           <div className="flex items-end justify-between mt-auto">
             <div>
               <p className="text-text-primary font-medium">{meta?.isGeoTiff ? "GeoTIFF" : file.file.type || "JPEG/PNG"}</p>
-              <p className="text-xs text-muted mt-1">{meta?.width} × {meta?.height} px</p>
+              <p className="text-xs text-muted mt-1">{scientific?.dimensions?.join(" × ") ?? `${meta?.width} × ${meta?.height}`} px</p>
             </div>
             <div className="w-2 h-2 rounded-full bg-green-400" title="Embedded" />
           </div>
@@ -63,8 +64,8 @@ export default function MetadataCards({ files }: MetadataCardsProps) {
           </div>
           <div className="flex items-end justify-between mt-auto">
             <div>
-              <p className="text-text-primary font-medium">{meta?.isGeoTiff ? "EPSG:4326" : "Unknown CRS"}</p>
-              <p className="text-xs text-muted mt-1">{meta?.isGeoTiff ? "~10m GSD" : "No geographic bounds"}</p>
+              <p className="text-text-primary font-medium">{scientific?.crs ?? "Unknown CRS"}</p>
+              <p className="text-xs text-muted mt-1">{scientific?.bounds ? "Verified raster bounds" : "No geographic bounds"}</p>
             </div>
             <div className={`w-2 h-2 rounded-full ${meta?.isGeoTiff ? "bg-green-400" : "bg-yellow-400"}`} />
           </div>
@@ -101,21 +102,23 @@ export default function MetadataCards({ files }: MetadataCardsProps) {
           </div>
           <div className="flex items-end justify-between mt-auto">
             <div>
-              <p className="text-text-primary font-medium">{meta?.type === "sar" ? "SAR (VV/VH)" : "Optical Multispectral"}</p>
-              <p className="text-xs text-muted mt-1">{meta?.isGeoTiff ? "4 bands detected" : "3 bands (RGB)"}</p>
+              <p className="text-text-primary font-medium">{scientific?.band_identities?.join(", ") || (meta?.type === "sar" ? "SAR (VV/VH)" : "Optical Multispectral")}</p>
+              <p className="text-xs text-muted mt-1">
+                {scientific ? `${scientific.channel_count} bands · ${scientific.band_identity_source} · ${Math.round(scientific.metadata_confidence * 100)}% confidence` : "Metadata pending"}
+              </p>
             </div>
             <div className="w-2 h-2 rounded-full bg-sky-400" />
           </div>
         </motion.div>
       </div>
       
-      {!meta?.isGeoTiff && (
+      {!scientific?.crs && (
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 flex gap-3 mt-4">
           <Info className="w-5 h-5 text-yellow-400 shrink-0" />
           <div>
             <h4 className="text-sm font-medium text-yellow-400">Limited Evidence Mode</h4>
             <p className="text-xs text-yellow-400/80 mt-1 leading-relaxed">
-              You uploaded a standard image without geographic metadata. Measurements (area, distance) and spectral indices (NDVI) are disabled. The system will rely purely on visual question answering (VQA) and standard segmentation.
+              Geographic metadata is unavailable. Geospatial measurements use an explicitly labelled approximation when possible; spectral tools may use approximate band mappings and disclose that limitation.
             </p>
           </div>
         </div>
