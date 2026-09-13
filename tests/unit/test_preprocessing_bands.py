@@ -46,3 +46,10 @@ def test_find_band_index_optical_missing_sar_returns_none():
     optical_bands = ["R", "G", "B"]
     assert _find_band_index("VV", optical_bands, 3) is None
     assert _find_band_index("VH", optical_bands, 3) is None
+
+
+def test_find_band_index_landsat_uses_sensor_specific_mapping():
+    bands = [f"B{i}" for i in range(1, 12)]
+    assert _find_band_index("R", bands, 11, "landsat-8") == 3
+    assert _find_band_index("NIR", bands, 11, "landsat-8") == 4
+    assert _find_band_index("SWIR1", bands, 11, "landsat-8") == 5

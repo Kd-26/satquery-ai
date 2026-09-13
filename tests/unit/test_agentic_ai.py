@@ -17,7 +17,7 @@ from backend.schemas.input_profile import InputProfile
 from backend.controller.verifier import verify_answer, get_conservative_fallback
 from backend.controller.intent import classify_intent
 from backend.controller.answerer import _serialise_evidence, _conservative_text_answer
-from backend.controller.executor import _vlm_class_scoring
+from backend.controller.executor import _vlm_class_scoring, ExecutorError
 
 
 @pytest.fixture
@@ -163,27 +163,14 @@ def test_intent_classification_heuristic():
     assert "vegetation" in intent["target_classes_hint"] or "water" in intent["target_classes_hint"]
 
 
-def test_executor_vlm_class_scoring_shapes_and_values():
-    shape = (1, 3, 128, 128)
-    res = _vlm_class_scoring(
-        image_id="test_img",
-        classes=["water", "vegetation"],
-        model_id="SEG_RGB_v1",
-        tensor_shape=shape,
-    )
-    assert "masks" in res
-    assert "scores" in res
-    assert "water" in res["masks"]
-    assert "vegetation" in res["masks"]
-
-    water_mask = res["masks"]["water"]
-    assert water_mask.shape == (1, 128, 128)
-    assert water_mask.dtype == np.uint8
-    assert set(np.unique(water_mask)).issubset({0, 1})
-
-    water_score = res["scores"]["water"]
-    assert water_score.shape == (1, 128, 128)
-    assert np.all(water_score >= 0.0) and np.all(water_score <= 1.0)
+def test_executor_never_fabricates_segmentation_masks_with_vlm():
+    with pytest.raises(ExecutorError, match="cannot be used to synthesize"):
+        _vlm_class_scoring(
+            image_id="test_img",
+            classes=["water", "vegetation"],
+            model_id="SEG_RGB_v1",
+            tensor_shape=(1, 3, 128, 128),
+        )
 
 
 def test_answerer_conservative_text_passes_verifier(sample_evidence):
