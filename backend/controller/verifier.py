@@ -37,7 +37,7 @@ _HIGH_SEVERITY_TERMS = [
 
 # Regex matching numbers with optional thousands commas and optional trailing units
 _NUM_WITH_UNIT_PATTERN = re.compile(
-    r'\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*'
+    r'(?<![\w.])([-+]?(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?)\s*'
     r'(ha|hectares?|m[²2]|sq\.?\s*m(?:eters?)?|square\s*meters?|km[²2]|sq\.?\s*km|square\s*kilometers?|%|percent)?\b',
     re.IGNORECASE,
 )
@@ -62,7 +62,8 @@ def _parse_candidate_values(num_str: str, unit_str: str | None) -> list[float]:
     candidates = [raw_val]
     unit = (unit_str or "").lower().strip()
 
-    # Remote sensing area normalization (evidence measurements are in hectares)
+    # Area normalization is used only for area evidence; direct matching below
+    # handles percentages, indices, and native raster units.
     if unit in ("ha", "hectare", "hectares"):
         candidates.append(raw_val)
     elif unit in ("m²", "m2", "sq m", "sq. m", "square meter", "square meters"):
@@ -105,7 +106,7 @@ def verify_answer(answer_text: str, evidence: EvidencePackage) -> VerificationRe
     text_for_nums = _UUID_PATTERN.sub(" [UUID] ", answer_text)
 
     # ── 2. Unit-aware numeric cross-checking ─────────────────────────────────
-    valid_measurements = [c.measurement for c in evidence.claims]
+    valid_measurements = [(c.measurement, c.unit.lower()) for c in evidence.claims]
     valid_confidences = [c.confidence for c in evidence.claims]
     valid_conf_pcts = [c.confidence * 100.0 for c in evidence.claims]
 
@@ -129,7 +130,7 @@ def verify_answer(answer_text: str, evidence: EvidencePackage) -> VerificationRe
 
         for cand in candidates:
             # Check against measurements directly
-            for meas in valid_measurements:
+            for meas, evidence_unit in valid_measurements:
                 if meas == 0:
                     if abs(cand) < 1e-4:
                         is_valid = True
@@ -138,15 +139,14 @@ def verify_answer(answer_text: str, evidence: EvidencePackage) -> VerificationRe
                     is_valid = True
                     break
 
-                # Also test direct conversions if raw number was un-annotated
-                # cand in m² -> meas * 10000
-                if meas > 0 and abs(cand - (meas * 10000.0)) / (meas * 10000.0) <= tolerance:
-                    is_valid = True
-                    break
-                # cand in km² -> meas / 100
-                if meas > 0 and abs(cand - (meas / 100.0)) / (meas / 100.0) <= tolerance:
-                    is_valid = True
-                    break
+                # Area conversions are permitted only for area evidence.
+                if evidence_unit in ("ha", "hectare", "hectares"):
+                    if meas > 0 and abs(cand - (meas * 10000.0)) / (meas * 10000.0) <= tolerance:
+                        is_valid = True
+                        break
+                    if meas > 0 and abs(cand - (meas / 100.0)) / (meas / 100.0) <= tolerance:
+                        is_valid = True
+                        break
 
             if is_valid:
                 break
@@ -168,8 +168,8 @@ def verify_answer(answer_text: str, evidence: EvidencePackage) -> VerificationRe
 
             # Also allow numbers that match a measurement directly in % form
             # (e.g. claim measurement=34.0 meaning 34% coverage → VLM writes "34%")
-            for meas in valid_measurements:
-                if 0.0 < meas <= 100.0:
+            for meas, evidence_unit in valid_measurements:
+                if evidence_unit in ("%", "percent") and 0.0 < meas <= 100.0:
                     if abs(cand - meas) <= (meas * tolerance + 1.0):
                         is_valid = True
                         break
@@ -219,8 +219,7 @@ def get_conservative_fallback(evidence: EvidencePackage) -> str:
     if evidence.claims:
         for c in evidence.claims:
             conf_str = f"{c.confidence:.0%}"
-            unit = "%" if c.tool == "geometry.pixel_fraction" else "ha"
-            lines.append(f"- **{c.claim.capitalize()}**: `{c.measurement:.4g} {unit}` (Confidence: {conf_str}, Tool: `{c.tool}`)")
+            lines.append(f"- **{c.claim.capitalize()}**: `{c.measurement:.4g} {c.unit}` (Confidence: {conf_str}, Tool: `{c.tool}`)")
     else:
         lines.append("- No quantitative features exceeded the minimum detection threshold.")
 

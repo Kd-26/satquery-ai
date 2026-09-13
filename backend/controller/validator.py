@@ -18,6 +18,8 @@ _SENSOR_BAND_SUPERSET: dict[str, set[str]] = {
     },
     # Sentinel-1: radar polarisations
     "sentinel-1": {"VV", "VH"},
+    "landsat-8": {"R", "G", "B", "NIR", "SWIR1", "SWIR2", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11"},
+    "landsat-9": {"R", "G", "B", "NIR", "SWIR1", "SWIR2", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11"},
     # Cartosat-2S: panchromatic / optical RGB
     "cartosat-2s": {"R", "G", "B"},
 }
@@ -77,9 +79,11 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
             else:
                 from backend.scientific_tools.alignment import check_pair_compatibility
                 align_res = check_pair_compatibility(profiles[0], profiles[1])
-                if not align_res.get("compatible"):
+                if not align_res.get("bounding_box_overlap") or (not align_res.get("crs_match") and not align_res.get("reprojectable")):
                     approved = False
-                    errors.append("Temporal workflow selected but image pair is not compatible (CRS/bbox mismatch).")
+                    errors.append("Temporal workflow selected but image pair has no compatible CRS/bounding-box overlap.")
+                elif not align_res.get("grid_match"):
+                    restrictions.append("Temporal grids differ; the second raster will be reprojected and resampled to the reference grid.")
     elif plan.workflow == "crossmodal":
         if len(profiles) < 2:
             approved = False
@@ -94,9 +98,11 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
                 errors.append("Cross-modal workflow requires at least one Optical image and one SAR image.")
             from backend.scientific_tools.alignment import check_pair_compatibility
             align_res = check_pair_compatibility(profiles[0], profiles[1])
-            if not align_res.get("compatible"):
+            if not align_res.get("bounding_box_overlap") or (not align_res.get("crs_match") and not align_res.get("reprojectable")):
                 approved = False
-                errors.append("Cross-modal workflow selected but image pair is not compatible (CRS/bbox mismatch).")
+                errors.append("Cross-modal workflow selected but image pair has no compatible CRS/bounding-box overlap.")
+            elif not align_res.get("grid_match"):
+                restrictions.append("Cross-modal grids differ; inputs require alignment before fusion.")
 
         # Cross-modal requires at least one optical model and one SAR model
         has_opt_model = False
@@ -131,6 +137,16 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
             errors.append(f"Model {model_id} (modality={model.modality}) has no matching image profile.")
             continue
 
+        # Approximate band identity can bridge incomplete metadata, but it
+        # must never bridge a physically incompatible sensing modality.
+        for profile in target_profiles:
+            if model.modality == "sar" and not _is_sar_profile(profile):
+                approved = False
+                errors.append(f"Model {model_id} is missing a compatible SAR input; {profile.image_id} is optical.")
+            elif model.modality in ("optical", "optical_rgb") and _is_sar_profile(profile):
+                approved = False
+                errors.append(f"Model {model_id} is missing a compatible optical input; {profile.image_id} is SAR.")
+
         # Check band compatibility against target profiles
         req_bands = model.input_contract.get("bands") or model.input_contract.get("polarization_order")
         if req_bands:
@@ -142,12 +158,12 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
                 effective_bands = profile_bands | sensor_superset
                 missing_bands = [b for b in req_bands if b not in effective_bands]
                 if missing_bands:
-                    approved = False
-                    errors.append(
+                    restrictions.append(
                         f"Model {model_id} requires bands {req_bands}, but profile "
                         f"{profile.image_id} (sensor={profile.sensor_family}) "
-                        f"is missing {missing_bands}."
+                        f"has unverified {missing_bands}; approximate channel mapping will be used."
                     )
+                    confidence_caps[model_id] = min(confidence_caps.get(model_id, 1.0), 0.5)
 
         # Check resolution and sensor-family domain-shift
         for profile in target_profiles:

@@ -9,7 +9,7 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
     claims = []
     masks_ref = {}
     overlays_ref = {}
-    limitations = []
+    limitations = list(workflow_result.get("limitations", []))
     model_versions = {}
     
     # Populate model_versions from the registry entries actually used
@@ -21,9 +21,17 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
             
     limitations.extend(validation.restrictions)
             
-    import os
     import rasterio
+    from affine import Affine
     from pathlib import Path
+
+    source_profile = None
+    if plan.images:
+        try:
+            from backend.controller.ingestion import resolve_metadata
+            source_profile = resolve_metadata(plan.images[0])
+        except Exception:
+            source_profile = None
     
     run_dir = Path(f"./artifacts/{run_id}")
     masks_dir = run_dir / "masks"
@@ -35,6 +43,7 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
         if hasattr(m_val, "shape"):
             mask_path = masks_dir / f"{m_key}.tif"
             try:
+                transform = Affine(*(source_profile.transform[:6])) if source_profile and source_profile.transform else Affine.identity()
                 with rasterio.open(
                     mask_path,
                     'w',
@@ -43,7 +52,10 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
                     width=m_val.shape[1],
                     count=1,
                     dtype=m_val.dtype,
-                    crs='+proj=latlong'
+                    crs=source_profile.crs if source_profile else None,
+                    transform=transform,
+                    nodata=0,
+                    compress="deflate",
                 ) as dst:
                     dst.write(m_val, 1)
             except Exception:
@@ -58,6 +70,29 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
 
         unit = m_val.get("unit", "ha") if isinstance(m_val, dict) else "ha"
         is_percent = (unit == "percent")
+
+        # New tool adapters provide an explicit evidence contract. Legacy
+        # workflow measurements continue through the compatibility path below.
+        if isinstance(m_val, dict) and "measurement" in m_val:
+            claims.append(Claim(
+                claim=m_val.get("claim", m_key.replace("_", " ")),
+                measurement=float(m_val["measurement"]),
+                unit=unit,
+                region_id=region_id,
+                source_images=plan.images,
+                tool=m_val.get("tool", "scientific_tool"),
+                confidence=float(m_val.get("confidence", 1.0)),
+                uncertainty=m_val.get("uncertainty"),
+                crs=m_val.get("crs") or (source_profile.crs if source_profile else None),
+                source_bands=m_val.get("source_bands", []),
+                parameters=m_val.get("parameters", {}),
+                tool_version=m_val.get("tool_version", "1.0.0"),
+                artifact_ref=m_val.get("artifact_ref"),
+                derivation=m_val.get("derivation", []),
+            ))
+            if unit in ("%", "percent"):
+                has_percent_claims = True
+            continue
 
         # Derive a readable claim string from the key
         parts = m_key.split('_')
@@ -95,6 +130,7 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
         claims.append(Claim(
             claim=claim_str,
             measurement=measurement,
+            unit="%" if is_percent else "ha",
             region_id=region_id,
             source_images=plan.images,
             tool=tool,

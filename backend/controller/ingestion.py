@@ -2,6 +2,7 @@ import os
 import uuid
 import logging
 import rasterio
+import json
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def validate_file(path: str) -> None:
     except rasterio.errors.RasterioIOError as e:
         raise CorruptFileError(f"Rasterio could not open the file: {e}")
 
-def ingest_upload(file_bytes: bytes, filename: str) -> str:
+def ingest_upload(file_bytes: bytes, filename: str, sidecar: dict | None = None) -> tuple[str, bool]:
     image_id = str(uuid.uuid4())
     ext = Path(filename).suffix
     
@@ -46,6 +47,14 @@ def ingest_upload(file_bytes: bytes, filename: str) -> str:
     # Save original filename for metadata heuristic
     try:
         (artifact_dir / "filename.txt").write_text(filename)
+        if sidecar:
+            raw_name = sidecar.get("_sidecar_filename")
+            raw_text = sidecar.get("_sidecar_text")
+            if raw_name and raw_text is not None:
+                safe_name = Path(str(raw_name)).name
+                (artifact_dir / safe_name).write_text(str(raw_text))
+            else:
+                (artifact_dir / "metadata_sidecar.json").write_text(json.dumps(sidecar, indent=2))
     except Exception:
         pass
         
@@ -81,14 +90,16 @@ from backend.scientific_tools.raster_io import read_raster_metadata
 from backend.schemas.input_profile import InputProfile
 import glob
 
-def inspect_image(image_id: str) -> dict:
+def inspect_image(image_id: str, sidecar: dict | None = None) -> dict:
     artifact_dir = Path(f"./artifacts/{image_id}")
     files = list(artifact_dir.glob("original.*"))
     if not files:
         raise FileNotFoundError(f"Original file not found for image {image_id}")
     
     file_path = str(files[0])
-    meta = read_raster_metadata(file_path)
+    from backend.controller.metadata_resolver import inspect_raster, load_sidecar
+    persisted = load_sidecar(artifact_dir)
+    persisted.update(sidecar or {})
 
     orig_name = ""
     name_file = artifact_dir / "filename.txt"
@@ -97,43 +108,34 @@ def inspect_image(image_id: str) -> dict:
             orig_name = name_file.read_text().lower()
         except Exception:
             pass
+    persisted.setdefault("original_filename", orig_name)
+    meta = inspect_raster(files[0], persisted)
     
-    channel_count = meta.get("channel_count", 0)
-    if channel_count == 2 or ("s1" in orig_name and channel_count == 2):
-        band_identities = ["VV", "VH"]
-    elif channel_count == 3:
-        band_identities = ["R", "G", "B"]
-    elif channel_count == 4:
-        band_identities = ["R", "G", "B", "unknown_band_4"]
-    elif channel_count == 1:
-        band_identities = ["Grayscale_or_SAR"]
-    elif channel_count == 13 or ("s2" in orig_name and channel_count >= 10):
-        # Sentinel-2 L1C / L2A standard 13-band order:
-        # B1(Coastal), B2(Blue), B3(Green), B4(Red), B5(VRE1), B6(VRE2),
-        # B7(VRE3), B8(NIR), B8A(NarrowNIR), B9(WV), B10(Cirrus), B11(SWIR1), B12(SWIR2)
-        # We expose R, G, B, NIR for compatibility checks — these are the
-        # scientifically validated identities for this sensor family.
-        band_identities = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B10", "B11", "B12"]
-    else:
-        band_identities = [f"unknown_band_{i+1}" for i in range(channel_count)]
-
-    meta["band_identities"] = band_identities
     meta["format"] = files[0].suffix.lstrip('.')
     meta["image_id"] = image_id
     meta["orig_name"] = orig_name
+    meta["sidecar"] = persisted
 
     return meta
 
 def resolve_metadata(image_id: str, sidecar: dict | None = None) -> InputProfile:
     sidecar = sidecar or {}
-    meta = inspect_image(image_id)
+    meta = inspect_image(image_id, sidecar)
+    sidecar = {**meta.get("sidecar", {}), **sidecar}
     orig_name = meta.get("orig_name", "")
     
-    acquisition_date = sidecar.get("acquisition_date")
+    acquisition_date = sidecar.get("acquisition_date") or sidecar.get("SENSING_TIME") or sidecar.get("PRODUCT_START_TIME") or sidecar.get("DATE_ACQUIRED")
     sar_polarization = sidecar.get("sar_polarization")
     sensor_type = sidecar.get("sensor_type")
     
     sensor_family = sidecar.get("sensor_family")
+    spacecraft = str(sidecar.get("SPACECRAFT_ID") or sidecar.get("SPACECRAFT_NAME") or "").lower()
+    if not sensor_family and "landsat_8" in spacecraft:
+        sensor_family = "landsat-8"
+        sensor_type = "optical"
+    elif not sensor_family and "landsat_9" in spacecraft:
+        sensor_family = "landsat-9"
+        sensor_type = "optical"
     if not sensor_family or sensor_family == "unknown":
         if "s1" in orig_name or "sar" in orig_name or meta.get("channel_count") == 2:
             sensor_family = "sentinel-1"
@@ -145,11 +147,8 @@ def resolve_metadata(image_id: str, sidecar: dict | None = None) -> InputProfile
         else:
             sensor_family = "unknown"
             
-    if sensor_family not in ['sentinel-1', 'sentinel-2', 'cartosat-2s', 'risat', 'unknown']:
+    if sensor_family not in ['sentinel-1', 'sentinel-2', 'landsat-8', 'landsat-9', 'cartosat-2s', 'risat', 'unknown']:
         sensor_family = "unknown"
-        
-    if "band_identities" in sidecar:
-        meta["band_identities"] = sidecar["band_identities"]
         
     verified_fields = ["dimensions", "channels", "format"]
     missing_fields = []
@@ -159,7 +158,7 @@ def resolve_metadata(image_id: str, sidecar: dict | None = None) -> InputProfile
         verified_fields.append("crs")
     else:
         missing_fields.append("crs")
-        capability_restrictions.append("area_estimation: unavailable without CRS")
+        capability_restrictions.append("area_estimation: physical area unavailable; report pixel coverage as the approximation")
         
     if meta.get("transform"):
         raw_pixel_spacing = abs(meta["transform"][0])
@@ -184,10 +183,20 @@ def resolve_metadata(image_id: str, sidecar: dict | None = None) -> InputProfile
     else:
         pixel_spacing_m = None
         missing_fields.append("pixel_spacing_m")
-        capability_restrictions.append("physical_measurement: unavailable without pixel spacing")
+        capability_restrictions.append("physical_measurement: use pixel-space or percentage approximation without pixel spacing")
 
+    approximate_fields = []
     if "unknown_band_4" in meta["band_identities"]:
-        capability_restrictions.append("multispectral_analysis: unavailable due to unverified band 4 (assumed NOT to be NIR)")
+        approximate_fields.append("band_identities")
+        capability_restrictions.append("multispectral_analysis: band 4 is unverified; approximate mapping is allowed with reduced confidence")
+    if "approximation" in meta.get("band_identity_source", ""):
+        approximate_fields.append("band_identities")
+        capability_restrictions.append(
+            f"band identities are approximate ({meta.get('band_identity_source')}); calculations remain enabled with reduced confidence"
+        )
+
+    from backend.controller.metadata_resolver import calibration_from_metadata
+    calibration = calibration_from_metadata(meta, sidecar)
 
     return InputProfile(
         image_id=image_id,
@@ -205,5 +214,14 @@ def resolve_metadata(image_id: str, sidecar: dict | None = None) -> InputProfile
         valid_pixel_fraction=None,
         verified_fields=verified_fields,
         missing_fields=missing_fields,
-        capability_restrictions=capability_restrictions
+        capability_restrictions=capability_restrictions,
+        transform=meta.get("transform"),
+        bounds=meta.get("bounds"),
+        band_identity_source=meta.get("band_identity_source", "approximation"),
+        metadata_confidence=float(meta.get("metadata_confidence", 0.5)),
+        approximate_fields=approximate_fields,
+        scale_factors=meta.get("scales", []),
+        offsets=meta.get("offsets", []),
+        band_units=meta.get("units", []),
+        calibration=calibration,
     )

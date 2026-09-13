@@ -15,6 +15,7 @@ Each stage transition is recorded so the frontend Job Centre can show real
 stage names (Ingesting -> Planning -> Validating -> Executing Tool -> VLM
 Synthesis -> Verifying) instead of a generic spinner.
 """
+import json
 from typing import List
 
 from backend.controller import run_state
@@ -30,7 +31,19 @@ from backend.controller.executor import (
 from backend.controller.preprocessing import IncompatibleInputError
 from backend.controller.evidence import build_evidence_package
 from backend.controller.answerer import generate_answer
+from backend.controller.answerer import generate_direct_answer
 from backend.controller.verifier import verify_answer, get_conservative_fallback
+from backend.controller.intent import route_query
+from backend.controller.scientific_tool_executor import (
+    ScientificToolError,
+    ensure_preview,
+    execute_scientific_route,
+)
+from backend.schemas.execution_plan import ExecutionPlan
+from backend.schemas.validation_result import ValidationResult
+from backend.controller.reproducibility import write_run_manifest
+from backend.controller.tool_graph import build_tool_graph
+from backend.schemas.tool_execution import ToolResult
 
 _WORKFLOW_DISPATCH = {
     "single": run_single_image_workflow,
@@ -39,7 +52,7 @@ _WORKFLOW_DISPATCH = {
 }
 
 
-def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
+def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_image_consent: bool = False) -> None:
     """
     Entry point scheduled via FastAPI BackgroundTasks from POST /api/v1/query.
     Never raises — all failures are recorded on the run_state registry so the
@@ -50,6 +63,108 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "ingesting", 10)
         profiles = [resolve_metadata(image_id) for image_id in image_ids]
+
+        run_state.check_cancelled(run_id)
+        run_state.update_stage(run_id, "routing", 18)
+        route = route_query(query, profiles)
+
+        if route.mode != "general_knowledge" and not image_ids:
+            run_state.mark_failed(run_id, "This query requires at least one uploaded image.")
+            return
+
+        # Conversational questions do not need a raster plan or scientific tools.
+        if route.mode == "general_knowledge":
+            run_state.update_stage(run_id, "vlm_synthesis", 80)
+            answer_obj = generate_direct_answer(query)
+            run_state.mark_done(run_id, {
+                "answer": answer_obj["plain_language"],
+                "answer_obj": answer_obj,
+                "claims": [],
+                "limitations": ["This is a general-knowledge response; no raster analysis was performed."],
+                "route": route.model_dump(),
+                "traces": [{"step": "direct_vlm", "status": "success"}],
+            })
+            return
+
+        # Qualitative visual interpretation sees a display preview and metadata,
+        # but deliberately does not create masks or quantitative claims.
+        if route.mode == "visual_interpretation":
+            run_state.update_stage(run_id, "preparing_preview", 40)
+            previews = [ensure_preview(image_id) for image_id in image_ids]
+            metadata = json.dumps([p.model_dump(mode="json") for p in profiles], indent=2)
+            run_state.update_stage(run_id, "visual_interpretation", 80)
+            answer_obj = generate_direct_answer(
+                query, images=previews, metadata=metadata,
+                external_image_consent=external_image_consent,
+            )
+            visual_verification = verify_answer(answer_obj["plain_language"], _empty_evidence(run_id))
+            limitations = [
+                "This is qualitative visual interpretation, not segmentation or a physical measurement."
+            ]
+            if not visual_verification.passed:
+                safe = (
+                    "The visual response included unsupported quantitative details and was withheld. "
+                    "Run an appropriate scientific measurement tool for quantitative results."
+                )
+                answer_obj = {"technical": safe, "plain_language": safe}
+                limitations.extend(visual_verification.flagged_claims)
+            run_state.mark_done(run_id, {
+                "answer": answer_obj["plain_language"],
+                "answer_obj": answer_obj,
+                "claims": [],
+                "limitations": limitations,
+                "route": route.model_dump(),
+                "traces": [{"step": "vision_vlm_interpret", "status": "success", "images_supplied": len(previews)}],
+            })
+            return
+
+        # Non-segmentation scientific routes are deterministic. The VLM only
+        # explains the resulting evidence after tools have finished.
+        if not route.requires_segmentation:
+            run_state.update_stage(run_id, f"executing_tool:{route.mode}", 55)
+            try:
+                workflow_result = execute_scientific_route(route, image_ids, profiles, run_id=run_id)
+            except ScientificToolError as e:
+                run_state.mark_failed(run_id, f"Scientific tool execution failed: {e}")
+                return
+            scientific_plan = ExecutionPlan(
+                workflow="temporal" if route.mode == "temporal_analysis" else "single",
+                images=image_ids,
+                target_classes=[],
+                required_models=[],
+                optional_tools=route.required_tools,
+                requested_outputs=["statistics"],
+                final_adapter=None,
+                fallback=None,
+            )
+            validation = ValidationResult(approved=True, restrictions=[], errors=[], confidence_caps={})
+            run_state.update_stage(run_id, "building_evidence", 72)
+            evidence = build_evidence_package(run_id, workflow_result, scientific_plan, validation)
+            write_run_manifest(
+                run_id, scientific_plan, evidence, profiles,
+                workflow_result.get("tool_graph"), workflow_result.get("traces"),
+            )
+            run_state.update_stage(run_id, "vlm_synthesis", 86)
+            answer_obj = generate_answer(query, evidence, scientific_plan)
+            run_state.update_stage(run_id, "verifying", 96)
+            technical_check = verify_answer(answer_obj["technical"], evidence)
+            plain_check = verify_answer(answer_obj["plain_language"], evidence)
+            limitations = list(evidence.limitations)
+            if not technical_check.passed or not plain_check.passed:
+                fallback_text = get_conservative_fallback(evidence)
+                answer_obj = {"technical": fallback_text, "plain_language": fallback_text}
+                limitations.append("VLM synthesis failed evidence verification; showing computed evidence only.")
+            run_state.mark_done(run_id, {
+                "answer": answer_obj["plain_language"],
+                "answer_obj": answer_obj,
+                "claims": [c.model_dump() for c in evidence.claims],
+                "limitations": limitations,
+                "route": route.model_dump(),
+                "tool_outputs": workflow_result["tool_outputs"],
+                "tool_graph": workflow_result["tool_graph"],
+                "traces": workflow_result["traces"],
+            })
+            return
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "planning", 25)
@@ -92,14 +207,43 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
 
         run_state.update_stage(run_id, f"executing_tool:{execution_plan.workflow}", 60)
         try:
-            workflow_result = workflow_fn(execution_plan, validation)
+            workflow_result = workflow_fn(execution_plan, validation, external_image_consent)
         except (ExecutorError, IncompatibleInputError) as e:
             run_state.mark_failed(run_id, f"Execution failed: {e}")
             return
 
+        segmentation_graph = build_tool_graph(route)
+        segmentation_results = []
+        optional_limitations = []
+        for node in segmentation_graph.nodes:
+            skipped = node.tool == "generate_overlay" and not workflow_result.get("overlays")
+            if skipped:
+                optional_limitations.append("Optional overlay generation was skipped; georeferenced mask artifacts remain available.")
+            value = (
+                workflow_result.get("measurements", {}) if node.tool == "measure_regions"
+                else list(workflow_result.get("masks", {})) if node.tool == "segment_features"
+                else {"completed": not skipped}
+            )
+            segmentation_results.append(ToolResult(
+                node_id=node.id, tool=node.tool,
+                status="skipped" if skipped else "success", required=node.required,
+                value=value, crs=profiles[0].crs if profiles else None,
+                source_images=image_ids,
+                source_bands=profiles[0].band_identities if profiles else [],
+                derivation=node.depends_on,
+                warnings=[optional_limitations[-1]] if skipped else [],
+            ).model_dump(mode="json"))
+        workflow_result["tool_graph"] = segmentation_graph.model_dump(mode="json")
+        workflow_result.setdefault("tool_outputs", {})["tool_results"] = segmentation_results
+        workflow_result.setdefault("limitations", []).extend(optional_limitations)
+
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "building_evidence", 75)
         evidence = build_evidence_package(run_id, workflow_result, execution_plan, validation)
+        write_run_manifest(
+            run_id, execution_plan, evidence, profiles,
+            workflow_result.get("tool_graph"), workflow_result.get("traces"),
+        )
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "vlm_synthesis", 90)
@@ -107,10 +251,11 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "verifying", 97)
-        verification = verify_answer(answer_obj["technical"], evidence)
+        technical_verification = verify_answer(answer_obj["technical"], evidence)
+        plain_verification = verify_answer(answer_obj["plain_language"], evidence)
 
         limitations = list(evidence.limitations)
-        if not verification.passed:
+        if not technical_verification.passed or not plain_verification.passed:
             # A failed verification disables the VLM's rhetorical answer, not
             # the whole result — fall back to the evidence-only template
             # (CLAUDE.md §1: "no number in the final answer may be invented").
@@ -127,6 +272,9 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
             "claims": [c.model_dump() for c in evidence.claims],
             "limitations": limitations,
             "traces": workflow_result.get("traces", []),
+            "route": route.model_dump(),
+            "tool_outputs": workflow_result.get("tool_outputs", {}),
+            "tool_graph": workflow_result.get("tool_graph"),
         }
         run_state.mark_done(run_id, result)
 
@@ -134,3 +282,16 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str]) -> None:
         run_state.mark_cancelled(run_id)
     except Exception as e:  # noqa: BLE001 — top-level pipeline boundary, must never crash the worker
         run_state.mark_failed(run_id, f"Unexpected pipeline error: {type(e).__name__}: {e}")
+
+
+def _empty_evidence(run_id: str):
+    from backend.schemas.evidence_package import EvidencePackage
+
+    return EvidencePackage(
+        run_id=run_id,
+        claims=[],
+        masks_ref={},
+        overlays_ref={},
+        limitations=[],
+        model_versions={},
+    )

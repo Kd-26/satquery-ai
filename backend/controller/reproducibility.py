@@ -44,7 +44,7 @@ def register_stac_item(image_id_or_run_id: str, asset_type: str, file_path: str,
                 "assets": {asset_type: {"href": file_path}}
             }, f)
 
-def write_run_manifest(run_id: str, plan: Any, evidence: Any, profiles: List[Any]) -> None:
+def write_run_manifest(run_id: str, plan: Any, evidence: Any, profiles: List[Any], tool_graph: Any = None, traces: Any = None) -> None:
     """
     Writes the reproducibility manifest to ./artifacts/{run_id}/run_manifest.json.
     
@@ -58,13 +58,15 @@ def write_run_manifest(run_id: str, plan: Any, evidence: Any, profiles: List[Any
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     
     checksums = {}
+    input_artifacts = {}
     for img_id in plan.images:
-        path = Path(f"./artifacts/{img_id}")
-        if path.exists() and path.is_file():
-            with open(path, "rb") as f:
+        candidates = list(Path(f"./artifacts/{img_id}").glob("original.*"))
+        if candidates:
+            input_artifacts[img_id] = str(candidates[0])
+            with open(candidates[0], "rb") as f:
                 checksums[img_id] = hashlib.sha256(f.read()).hexdigest()
         else:
-            checksums[img_id] = hashlib.sha256(img_id.encode()).hexdigest()
+            raise FileNotFoundError(f"Cannot create reproducibility manifest: source artifact {img_id} is missing")
             
     pkgs = ['numpy', 'rasterio', 'fastapi', 'pydantic', 'geoalchemy2', 'sqlmodel']
     versions = {}
@@ -77,12 +79,19 @@ def write_run_manifest(run_id: str, plan: Any, evidence: Any, profiles: List[Any
     manifest = {
         "run_id": run_id,
         "input_checksums": checksums,
+        "input_artifacts": input_artifacts,
         "sensor_bands": [getattr(p, 'band_identities', []) for p in profiles],
         "crs": [getattr(p, 'crs', 'unknown') for p in profiles],
         "pixel_resolution_m": [getattr(p, 'pixel_spacing_m', 0.0) for p in profiles],
         "model_versions": evidence.model_versions,
         "software_versions": versions,
-        "tool_formulas_used": [],
+        "tool_graph": tool_graph or {},
+        "execution_traces": traces or [],
+        "evidence": evidence.model_dump(mode="json") if hasattr(evidence, "model_dump") else evidence,
+        "tool_formulas_used": [
+            "NDVI=(NIR-Red)/(NIR+Red)", "NDWI=(Green-NIR)/(Green+NIR)",
+            "MNDWI=(Green-SWIR1)/(Green+SWIR1)", "NDBI=(SWIR1-NIR)/(SWIR1+NIR)",
+        ],
         "user_corrections": []
     }
     

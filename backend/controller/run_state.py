@@ -73,6 +73,11 @@ def get_run(run_id: str) -> Optional[RunState]:
         return _RUNS.get(run_id)
 
 
+def list_runs() -> List[RunState]:
+    with _LOCK:
+        return sorted(_RUNS.values(), key=lambda state: state.updated_at, reverse=True)
+
+
 def update_stage(run_id: str, stage: str, progress: int) -> None:
     with _LOCK:
         state = _RUNS.get(run_id)

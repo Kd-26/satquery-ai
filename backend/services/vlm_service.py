@@ -32,6 +32,9 @@ import os
 import json
 import time
 import logging
+import base64
+import mimetypes
+from pathlib import Path
 from typing import Any, Optional
 
 import requests
@@ -44,16 +47,12 @@ MODEL_ID     = os.getenv("VLM_MODEL_ID", "nvidia/nemotron-3-nano-omni-30b-a3b-re
 LORA_ADAPTER = os.getenv("VLM_LORA_ADAPTER", "")   # blank until fine-tuned model is ready
 
 # ── API key pool — rotated on 503/429 to maximise throughput ─────────────────
-_KEY_POOL: list[str] = [k for k in [
-    os.getenv("NIM_API_KEY",   "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"),
-    os.getenv("NIM_API_KEY_2", "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"),
-    os.getenv("NIM_API_KEY_3", "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"),
-    os.getenv("NIM_API_KEY_4", "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"),
-    os.getenv("NIM_API_KEY_5", "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"),
-    os.getenv("NIM_API_KEY_6", "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"),
-    os.getenv("NIM_API_KEY_7", "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"),
-    os.getenv("NIM_API_KEY_8", "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"),
-] if k]
+_KEY_POOL: list[str] = [
+    key for key in (
+        os.getenv("NIM_API_KEY"),
+        *(os.getenv(f"NIM_API_KEY_{i}") for i in range(2, 9)),
+    ) if key
+]
 
 # ── Generation defaults ───────────────────────────────────────────────────────
 MAX_TOKENS       = int(os.getenv("VLM_MAX_TOKENS",       "8192"))
@@ -190,7 +189,18 @@ def _build_messages(
             if url.startswith("http"):
                 # Remote URL — pass directly
                 content.append({"type": "image_url", "image_url": {"url": url}})
-            # Local file paths / base64 can be added here when needed
+            elif url.startswith("data:"):
+                content.append({"type": "image_url", "image_url": {"url": url}})
+            else:
+                path = Path(url)
+                if not path.is_file():
+                    raise VLMError(f"Image supplied to VLM does not exist: {url}")
+                mime = mimetypes.guess_type(path.name)[0] or "image/png"
+                encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{encoded}"},
+                })
 
     messages.append({"role": "user", "content": content})
     return messages
@@ -237,6 +247,9 @@ def _call_nim(
 
     last_exc: Exception | None = None
     keys_tried = 0
+
+    if not _KEY_POOL:
+        raise VLMError("No NVIDIA API key configured. Set NIM_API_KEY in the environment.")
 
     for key_idx, api_key in enumerate(_KEY_POOL):
         keys_tried += 1

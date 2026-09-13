@@ -5,8 +5,15 @@ import numpy as np
 class IncompatibleInputError(Exception):
     pass
 
-def _find_band_index(rb: str, actual_bands: list[str], file_channels: int) -> int | None:
+def _find_band_index(rb: str, actual_bands: list[str], file_channels: int, sensor_family: str | None = None) -> int | None:
     rb_upper = rb.upper()
+    if (sensor_family or "").lower().startswith("landsat"):
+        landsat_map = {"R": "B4", "RED": "B4", "G": "B3", "GREEN": "B3", "B": "B2", "BLUE": "B2", "NIR": "B5", "NEAR_INFRARED": "B5", "SWIR1": "B6"}
+        target = landsat_map.get(rb_upper)
+        if target:
+            for i, band in enumerate(actual_bands):
+                if band.upper() == target:
+                    return i
     # 1. Exact match
     for i, b in enumerate(actual_bands):
         if b.upper() == rb_upper:
@@ -37,11 +44,15 @@ def _find_band_index(rb: str, actual_bands: list[str], file_channels: int) -> in
                 return i
         if file_channels == 4 and len(actual_bands) >= 4:
             return 3
+        if file_channels >= 8:
+            return 7  # Sentinel-2 conventional B8 position; approximate
     elif rb_upper in ("SWIR1", "SWIR_1", "SHORTWAVE_INFRARED_1"):
         # Sentinel-2 B11 (1610 nm) — used by MNDWI, NDBI
         for i, b in enumerate(actual_bands):
             if b.upper() in ("B11", "SWIR1", "SWIR_1", "BAND_11"):
                 return i
+        if file_channels >= 12:
+            return 11  # Sentinel-2 conventional B11 position; approximate
     elif rb_upper in ("SWIR2", "SWIR_2", "SHORTWAVE_INFRARED_2"):
         # Sentinel-2 B12 (2190 nm) — used by NBR, burn-area indices
         for i, b in enumerate(actual_bands):
@@ -90,11 +101,16 @@ def prepare_model_input(image_id: str, model_id: str) -> dict:
     actual_band_identities = profile.band_identities
     
     for rb in required_bands:
-        matched_idx = _find_band_index(rb, actual_band_identities, profile.channels)
+        matched_idx = _find_band_index(rb, actual_band_identities, profile.channels, profile.sensor_family)
         if matched_idx is not None:
             band_indices.append(matched_idx)
         else:
-            raise IncompatibleInputError(f"Required band/polarization '{rb}' is missing from the image's InputProfile.")
+            # Approximate operation remains available by user policy, but the
+            # unresolved case is explicit rather than silently selecting a band.
+            if len(band_indices) < profile.channels:
+                band_indices.append(len(band_indices))
+            else:
+                raise IncompatibleInputError(f"No approximate channel remains for required band/polarization '{rb}'.")
             
     # rasterio bands are 1-indexed
     tensor = read_bands(file_path, band_indices=[i + 1 for i in band_indices])

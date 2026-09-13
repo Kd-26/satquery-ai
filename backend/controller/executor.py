@@ -1,10 +1,11 @@
 import json
 import logging
-import re
 import time
+import os
 import httpx
 import numpy as np
 from typing import Dict, Any
+from urllib.parse import urlparse
 
 from backend.schemas.execution_plan import ExecutionPlan
 from backend.schemas.validation_result import ValidationResult
@@ -18,77 +19,10 @@ class ExecutorError(Exception):
 
 
 def _vlm_class_scoring(image_id: str | None, classes: list[str], model_id: str, tensor_shape: tuple) -> dict:
-    """
-    Use VLM to estimate per-class presence probabilities and generate contiguous,
-    meaningful masks and calibrated confidence scores instead of random noise.
-    """
-    batch, c, h, w = tensor_shape
-    classes = classes or ["feature"]
-    class_probs: dict[str, float] = {}
-
-    try:
-        from backend.services.vlm_service import generate as vlm_generate
-        prompt = (
-            f"You are a satellite remote sensing AI. For image '{image_id or 'scene'}' "
-            f"processed by model '{model_id}', estimate the visual presence probability "
-            f"(0.0 to 1.0) for each class in: {json.dumps(classes)}. "
-            "Respond ONLY with a valid JSON object mapping class name to float probability, "
-            'for example: {"water": 0.25, "vegetation": 0.65}'
-        )
-        raw = vlm_generate(prompt=prompt, max_tokens=150, reasoning_budget=0)
-        cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
-        parsed = json.loads(cleaned)
-        if isinstance(parsed, dict):
-            for cls in classes:
-                if cls in parsed and isinstance(parsed[cls], (int, float)):
-                    class_probs[cls] = float(np.clip(parsed[cls], 0.0, 1.0))
-    except Exception as e:
-        logger.warning("VLM class scoring fallback triggered for %s: %s", model_id, e)
-
-    # Domain priors for standard land cover classes
-    default_priors = {
-        "water": 0.25,
-        "vegetation": 0.60,
-        "urban": 0.15,
-        "soil": 0.10,
-        "cropland": 0.40,
-        "forest": 0.45,
-        "barren": 0.10,
-    }
-    for cls in classes:
-        if cls not in class_probs:
-            class_probs[cls] = default_priors.get(cls.lower(), 0.30)
-
-    masks = {}
-    scores = {}
-
-    # Create coherent spatial masks using sinusoidal coordinate waves (smooth spatial patterns)
-    y_coords = np.linspace(0, 2 * np.pi, h, endpoint=False)[:, None]
-    x_coords = np.linspace(0, 2 * np.pi, w, endpoint=False)[None, :]
-
-    for i, cls in enumerate(classes):
-        prob = class_probs[cls]
-        phase = (i + 1) * 1.3
-        # Continuous spatial field between 0 and 1
-        spatial_field = 0.5 * (np.sin(y_coords * 2 + phase) * np.cos(x_coords * 2 + phase) + 1.0)
-        spatial_batch = np.repeat(spatial_field[np.newaxis, :, :], batch, axis=0)
-
-        if prob <= 0.02:
-            mask = np.zeros((batch, h, w), dtype=np.uint8)
-            score = np.full((batch, h, w), 0.05, dtype=np.float32)
-        elif prob >= 0.98:
-            mask = np.ones((batch, h, w), dtype=np.uint8)
-            score = np.full((batch, h, w), 0.95, dtype=np.float32)
-        else:
-            threshold = np.quantile(spatial_batch, 1.0 - prob)
-            mask = (spatial_batch >= threshold).astype(np.uint8)
-            # Scores calibrated around estimated probability
-            score = np.clip(spatial_batch * 0.4 + (prob * 0.6), 0.0, 1.0).astype(np.float32)
-
-        masks[cls] = mask
-        scores[cls] = score
-
-    return {"masks": masks, "scores": scores}
+    raise ExecutorError(
+        f"Segmentation service {model_id} is unavailable. An LLM cannot be used "
+        "to synthesize scientific masks; configure a real model endpoint."
+    )
 
 
 def _run_model_inference(
@@ -98,29 +32,48 @@ def _run_model_inference(
     contract: dict,
     classes: list,
     image_id: str | None = None,
+    external_image_consent: bool = False,
 ) -> dict:
     """
     Run model inference via real HTTP microservice if available,
     or bridge via VLM class scoring.
     """
     if endpoint and endpoint.startswith("http"):
-        try:
-            resp = httpx.post(
-                endpoint,
-                json={"model_id": model_id, "classes": classes, "image_id": image_id},
-                timeout=2.0,
+        hostname = (urlparse(endpoint).hostname or "").lower()
+        is_local = hostname in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
+        if not is_local and not external_image_consent:
+            raise ExecutorError(
+                f"Model service {model_id} is external; explicit image-upload consent is required."
             )
+        try:
+            artifact_files = list(Path("artifacts", image_id or "").glob("original.*"))
+            if not artifact_files:
+                raise ExecutorError(f"Original raster not found for {image_id}.")
+            with artifact_files[0].open("rb") as raster_file:
+                resp = httpx.post(
+                    endpoint,
+                    data={"model_id": model_id, "classes": json.dumps(classes), "image_id": image_id or ""},
+                    files={"file": (artifact_files[0].name, raster_file, "application/octet-stream")},
+                    timeout=30.0,
+                )
             if resp.status_code == 200:
                 data = resp.json()
                 if "masks" in data and "scores" in data:
-                    return data
+                    return {
+                        "masks": {key: np.asarray(value, dtype=np.uint8) for key, value in data["masks"].items()},
+                        "scores": {key: np.asarray(value, dtype=np.float32) for key, value in data["scores"].items()},
+                    }
+                raise ExecutorError(f"Model service {model_id} returned an invalid response contract.")
+            raise ExecutorError(f"Model service {model_id} returned HTTP {resp.status_code}.")
         except Exception as e:
-            logger.debug("Microservice endpoint %s unreachable (%s), using VLM scoring", endpoint, e)
+            if isinstance(e, ExecutorError):
+                raise
+            raise ExecutorError(f"Model service {model_id} is unreachable: {e}") from e
 
     return _vlm_class_scoring(image_id, classes, model_id, tensor.shape)
 
 
-from backend.scientific_tools.quality import compute_valid_mask
+from backend.scientific_tools.quality import compute_valid_mask, detect_saturation, approximate_optical_cloud_shadow_mask, decode_quality_band
 from backend.controller.ingestion import resolve_metadata
 from backend.scientific_tools.raster_io import read_bands
 from pathlib import Path
@@ -139,7 +92,7 @@ def _stitch_tiles(batch_tensor: np.ndarray, tile_transforms: list, dtype=np.floa
         stitched[y:y+oh, x:x+ow] = batch_tensor[i, :oh, :ow]
     return stitched
 
-def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult) -> Dict[str, Any]:
+def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult, external_image_consent: bool = False) -> Dict[str, Any]:
     if not validation.approved:
         raise ExecutorError("Cannot run workflow: Validation rejected the plan.")
         
@@ -161,7 +114,39 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
     file_path = str(files[0])
     raw_raster = read_bands(file_path)
     
-    valid_mask = compute_valid_mask(raw_raster, nodata_value=profile.nodata_value)
+    saturation_mask = detect_saturation(raw_raster)
+    quality_invalid = saturation_mask.copy()
+    quality_method = "nodata_and_saturation"
+    upper_bands = [band.upper() for band in profile.band_identities]
+    qa_name = next((name for name in ("SCL", "QA_PIXEL") if name in upper_bands), None)
+    if qa_name:
+        decoded = decode_quality_band(raw_raster[upper_bands.index(qa_name)], qa_name)
+        quality_invalid |= decoded["invalid_mask"]
+        quality_method = decoded["method"]
+    elif (profile.sensor_type or "").lower() != "sar" and profile.sensor_family not in {"sentinel-1", "risat"}:
+        if raw_raster.shape[0] >= 3:
+            try:
+                from backend.controller.preprocessing import _find_band_index
+                blue_idx = _find_band_index("B", profile.band_identities, profile.channels, profile.sensor_family)
+                green_idx = _find_band_index("G", profile.band_identities, profile.channels, profile.sensor_family)
+                red_idx = _find_band_index("R", profile.band_identities, profile.channels, profile.sensor_family)
+                if None not in (blue_idx, green_idx, red_idx):
+                    estimated = approximate_optical_cloud_shadow_mask(
+                        raw_raster[blue_idx], raw_raster[green_idx], raw_raster[red_idx]
+                    )
+                    quality_invalid |= estimated["cloud_mask"] | estimated["shadow_mask"]
+                    quality_method = estimated["method"]
+            except Exception:
+                pass
+    valid_mask = compute_valid_mask(raw_raster, nodata_value=profile.nodata_value, cloud_mask=quality_invalid)
+    valid_fraction = float(valid_mask.mean())
+    if valid_fraction < float(os.getenv("QUALITY_MIN_VALID_FRACTION", "0.2")):
+        raise ExecutorError(f"Quality gate failed for {image_id}: only {valid_fraction:.1%} of pixels are usable.")
+    tool_outputs["quality_gate"] = {
+        "valid_fraction": valid_fraction,
+        "saturated_fraction": float(saturation_mask.mean()),
+        "method": quality_method,
+    }
     
     # Determine active models compatible with this image's modality
     from backend.controller.validator import _is_sar_profile
@@ -211,6 +196,7 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
                 contract=contract,
                 classes=classes,
                 image_id=image_id,
+                external_image_consent=external_image_consent,
             )
         except Exception as e:
             raise ExecutorError(f"Model service {model_id} failed: {e}")
@@ -255,7 +241,7 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
                     for plain RGB files, 4-band RGBN, and Sentinel-2 13-band files
                     where band_identities is ["B1","B2",…,"B12"].
                     """
-                    idx = _find_band_index(logical_name, profile.band_identities, profile.channels)
+                    idx = _find_band_index(logical_name, profile.band_identities, profile.channels, profile.sensor_family)
                     if idx is None:
                         raise IncompatibleInputError(
                             f"Band '{logical_name}' required by {index_name} is not present "
@@ -279,7 +265,6 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
                 elif index_name == "NDBI":
                     # NDBI = (SWIR1 - NIR) / (SWIR1 + NIR)  — built-up index
                     result = compute_ndbi(swir1=_get_band("SWIR1"), nir=_get_band("NIR"))
-
                 else:
                     raise ValueError(
                         f"Unsupported spectral index: {index_name}. "
@@ -315,26 +300,42 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
     has_geo_measurements = bool(measurements_out)
 
     if total_valid_pixels > 0:
-        for model_id in plan.required_models:
-            prefix = f"{model_id}_"
-            for mask_key, mask_arr in list(masks_out.items()):
-                if mask_key.startswith(prefix):
-                    cls_name = mask_key[len(prefix):]
-                    covered = int((mask_arr.astype(bool) & valid_mask).sum())
-                    pct = round((covered / total_valid_pixels) * 100.0, 1)
+        for mask_key, mask_arr in masks_out.items():
+            # Preserve compound classes such as built_up and bare_soil.
+            cls_name = next(
+                (cls for cls in sorted(plan.target_classes, key=len, reverse=True) if mask_key.endswith(f"_{cls}")),
+                mask_key,
+            )
+            covered = int((mask_arr.astype(bool) & valid_mask).sum())
+            pct = round((covered / total_valid_pixels) * 100.0, 1)
 
-                    # Only emit if coverage > 1% (avoids noise claims)
-                    if pct > 1.0:
-                        meas_key = f"coverage_{cls_name}"
-                        if meas_key not in measurements_out:
-                            measurements_out[meas_key] = {
-                                "area_hectares": pct,   # stored as %, label clarifies unit
-                                "unit": "percent",
-                                "pixel_count": covered,
-                                "total_pixels": total_valid_pixels,
-                            }
+            # Only emit if coverage > 1% (avoids noise claims)
+            if pct > 1.0:
+                meas_key = f"coverage_{cls_name}"
+                if meas_key not in measurements_out:
+                    measurements_out[meas_key] = {
+                        "measurement": pct,
+                        "claim": f"{cls_name} pixel coverage",
+                        "unit": "percent",
+                        "tool": "geometry.pixel_fraction",
+                        "confidence": 0.82,
+                        "pixel_count": covered,
+                        "total_pixels": total_valid_pixels,
+                    }
+
+                if "area_estimate" in plan.requested_outputs and profile.pixel_spacing_m and profile.crs:
+                    from backend.scientific_tools.geometry import measure_regions
+                    area = measure_regions(mask_arr, profile.pixel_spacing_m, profile.crs, profile.transform)
+                    measurements_out[f"area_{cls_name}"] = {
+                        **area,
+                        "unit": "ha",
+                    }
 
     # Note in traces whether geo-calibrated or pixel-fraction
+    has_geo_measurements = any(
+        isinstance(value, dict) and value.get("unit") == "ha"
+        for value in measurements_out.values()
+    )
     if not has_geo_measurements and measurements_out:
         traces.append({
             "step": "pixel_fraction_measurement",
@@ -351,7 +352,7 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult)
         "traces": traces
     }
 
-def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> Dict[str, Any]:
+def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult, external_image_consent: bool = False) -> Dict[str, Any]:
     if not validation.approved:
         raise ExecutorError("Cannot run workflow: Validation rejected the plan.")
         
@@ -364,8 +365,8 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
     plan_t1 = plan.model_copy(update={"images": [image_t1]})
     plan_t2 = plan.model_copy(update={"images": [image_t2]})
     
-    res_t1 = run_single_image_workflow(plan_t1, validation)
-    res_t2 = run_single_image_workflow(plan_t2, validation)
+    res_t1 = run_single_image_workflow(plan_t1, validation, external_image_consent)
+    res_t2 = run_single_image_workflow(plan_t2, validation, external_image_consent)
     
     masks_out = {}
     scores_out = {}
@@ -383,6 +384,11 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
         
     rt1 = read_bands(_resolve_artifact(image_t1))
     rt2 = read_bands(_resolve_artifact(image_t2))
+    from backend.scientific_tools.alignment import check_pair_compatibility, align_to_reference
+    temporal_alignment = check_pair_compatibility(profile_t1, profile_t2)
+    alignment_required = not temporal_alignment["grid_match"] or not temporal_alignment["crs_match"] or rt1.shape[-2:] != rt2.shape[-2:]
+    if alignment_required:
+        rt2 = align_to_reference(rt2, profile_t2, profile_t1)["array"]
     
     vm_t1 = compute_valid_mask(rt1, nodata_value=profile_t1.nodata_value)
     vm_t2 = compute_valid_mask(rt2, nodata_value=profile_t2.nodata_value)
@@ -400,6 +406,8 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
                 break
                 
         if mask_t1 is not None and mask_t2 is not None:
+            if alignment_required:
+                mask_t2 = align_to_reference(mask_t2, profile_t2, profile_t1, categorical=True)["array"]
             comp = compare_dates(mask_t1, mask_t2, shared_valid_mask)
             masks_out[f"gain_{cls}"] = comp["gain"]
             masks_out[f"loss_{cls}"] = comp["loss"]
@@ -414,13 +422,15 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
                     measurements_out[f"gain_{cls}_area"] = measure_regions(
                         masks_out[f"gain_{cls}"],
                         pixel_spacing_m=profile_t1.pixel_spacing_m,
-                        crs=profile_t1.crs
+                        crs=profile_t1.crs,
+                        transform=profile_t1.transform,
                     )
                 if f"loss_{cls}" in masks_out:
                     measurements_out[f"loss_{cls}_area"] = measure_regions(
                         masks_out[f"loss_{cls}"],
                         pixel_spacing_m=profile_t1.pixel_spacing_m,
-                        crs=profile_t1.crs
+                        crs=profile_t1.crs,
+                        transform=profile_t1.transform,
                     )
     
     return {
@@ -431,7 +441,7 @@ def run_temporal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> 
         "traces": res_t1["traces"] + res_t2["traces"]
     }
 
-def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult) -> Dict[str, Any]:
+def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult, external_image_consent: bool = False) -> Dict[str, Any]:
     if not validation.approved:
         raise ExecutorError("Cannot run workflow: Validation rejected the plan.")
         
@@ -477,8 +487,8 @@ def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult) -
     plan_opt = plan.model_copy(update={"images": [image_opt], "required_models": [model_opt.id], "target_classes": target_classes})
     plan_sar = plan.model_copy(update={"images": [image_sar], "required_models": [model_sar.id], "target_classes": target_classes})
     
-    res_opt = run_single_image_workflow(plan_opt, validation)
-    res_sar = run_single_image_workflow(plan_sar, validation)
+    res_opt = run_single_image_workflow(plan_opt, validation, external_image_consent)
+    res_sar = run_single_image_workflow(plan_sar, validation, external_image_consent)
     
     masks_out = {}
     scores_out = {}
@@ -499,12 +509,23 @@ def run_crossmodal_workflow(plan: ExecutionPlan, validation: ValidationResult) -
     
     q_opt = estimate_optical_reliability(rt_opt, cloud_mask=None)
     q_sar = estimate_sar_reliability(rt_sar, layover_shadow_mask=None)
+    from backend.scientific_tools.alignment import check_pair_compatibility, align_to_reference
+    crossmodal_alignment = check_pair_compatibility(p0, p1)
+    crossmodal_alignment_required = (
+        not crossmodal_alignment["grid_match"]
+        or not crossmodal_alignment["crs_match"]
+        or q_opt.shape != q_sar.shape
+    )
+    if crossmodal_alignment_required:
+        q_sar = align_to_reference(q_sar, resolve_metadata(image_sar), resolve_metadata(image_opt))["array"]
     
     for cls in target_classes:
         p_opt = res_opt["scores"].get(f"{model_opt.id}_{cls}")
         p_sar = res_sar["scores"].get(f"{model_sar.id}_{cls}")
         
         if p_opt is not None and p_sar is not None:
+            if crossmodal_alignment_required or p_opt.shape != p_sar.shape:
+                p_sar = align_to_reference(p_sar, resolve_metadata(image_sar), resolve_metadata(image_opt))["array"]
             fusion = fuse_evidence(p_opt, q_opt, p_sar, q_sar)
             
             fused_p = fusion["fused_probability"]

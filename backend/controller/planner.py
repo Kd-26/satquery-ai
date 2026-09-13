@@ -28,7 +28,8 @@ from typing import Optional
 from backend.schemas.input_profile import InputProfile
 from backend.schemas.execution_plan import ExecutionPlan
 from backend.registry import registry_loader
-from backend.services.vlm_service import generate_with_tool_call, VLMToolCallError
+from backend.services.provider_service import generate_with_tool_call
+from backend.services.vlm_service import VLMToolCallError
 from backend.controller.intent import classify_intent
 
 logger = logging.getLogger(__name__)

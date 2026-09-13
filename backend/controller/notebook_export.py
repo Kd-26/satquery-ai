@@ -23,22 +23,13 @@ def generate_notebook(run_id: str) -> str:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
     if not manifest_path.exists():
-        # Fallback if manifest is missing
-        manifest = {
-            "run_id": run_id,
-            "software_versions": {"numpy": "1.24.3", "rasterio": "1.3.8"},
-            "input_checksums": {"img1.tif": "mock_hash"},
-            "model_versions": {"SEG_RGB_v1": "1.2.0"}
-        }
+        raise FileNotFoundError(f"Run manifest does not exist for {run_id}")
     else:
         with open(manifest_path, "r") as f:
             manifest = json.load(f)
             
     if not nbformat:
-        # Mock behavior if nbformat isn't installed
-        with open(out_path, "w") as f:
-            f.write(f"Mock Jupyter Notebook for {run_id}\nReconstructed from: {manifest}")
-        return str(out_path)
+        raise RuntimeError("nbformat is required for notebook export")
         
     nb = new_notebook()
     
@@ -55,7 +46,10 @@ def generate_notebook(run_id: str) -> str:
     # 4. Data Loading & Integrity
     load_code = "# Load original input imagery and verify checksums\n"
     for img, checksum in manifest.get("input_checksums", {}).items():
-        load_code += f"img_{img.replace('.','_')} = rasterio.open('./artifacts/{img}')\n"
+        input_path = manifest.get("input_artifacts", {}).get(img)
+        if not input_path:
+            raise ValueError(f"Manifest is missing the source path for {img}")
+        load_code += f"img_{img.replace('-','_')} = rasterio.open({input_path!r})\n"
         load_code += f"# Expected SHA256: {checksum}\n"
     nb.cells.append(new_code_cell(load_code))
     
