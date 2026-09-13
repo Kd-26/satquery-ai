@@ -27,7 +27,8 @@ def _vlm_class_scoring(image_id: str | None, classes: list[str], model_id: str, 
     class_probs: dict[str, float] = {}
 
     try:
-        from backend.services.vlm_service import generate as vlm_generate
+        from backend.services.providers.openai_provider import OpenAIProvider
+        provider = OpenAIProvider()
         prompt = (
             f"You are a satellite remote sensing AI. For image '{image_id or 'scene'}' "
             f"processed by model '{model_id}', estimate the visual presence probability "
@@ -35,7 +36,7 @@ def _vlm_class_scoring(image_id: str | None, classes: list[str], model_id: str, 
             "Respond ONLY with a valid JSON object mapping class name to float probability, "
             'for example: {"water": 0.25, "vegetation": 0.65}'
         )
-        raw = vlm_generate(prompt=prompt, max_tokens=150, reasoning_budget=0)
+        raw = provider.complete(prompt=prompt)
         cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
         parsed = json.loads(cleaned)
         if isinstance(parsed, dict):

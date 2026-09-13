@@ -28,7 +28,7 @@ from typing import Optional
 from backend.schemas.input_profile import InputProfile
 from backend.schemas.execution_plan import ExecutionPlan
 from backend.registry import registry_loader
-from backend.services.vlm_service import generate_with_tool_call, VLMToolCallError
+from backend.services.providers.openai_provider import OpenAIProvider
 from backend.controller.intent import classify_intent
 
 logger = logging.getLogger(__name__)
@@ -223,17 +223,18 @@ def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -
     prompt = _build_planner_prompt(query, input_profiles)
 
     try:
-        args = generate_with_tool_call(
+        provider = OpenAIProvider()
+        args = provider.structured(
             prompt=prompt,
             tool_name="create_execution_plan",
-            tool_schema=_EXECUTION_PLAN_TOOL_SCHEMA,
+            schema=_EXECUTION_PLAN_TOOL_SCHEMA,
             system=_PLANNER_SYSTEM,
         )
         # Inject actual image_ids (model may echo them correctly, but enforce ground truth)
         args["images"] = image_ids
         return ExecutionPlan.model_validate(args)
 
-    except (VLMToolCallError, Exception) as first_err:
+    except Exception as first_err:
         logger.warning("Planner first attempt failed: %s — retrying with error context.", first_err)
         retry_prompt = (
             f"{prompt}\n\n"
@@ -243,10 +244,11 @@ def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -
             "Do NOT return plain text."
         )
         try:
-            args = generate_with_tool_call(
+            provider = OpenAIProvider()
+            args = provider.structured(
                 prompt=retry_prompt,
                 tool_name="create_execution_plan",
-                tool_schema=_EXECUTION_PLAN_TOOL_SCHEMA,
+                schema=_EXECUTION_PLAN_TOOL_SCHEMA,
                 system=_PLANNER_SYSTEM,
             )
             args["images"] = image_ids
@@ -297,10 +299,11 @@ def replan(
 
     logger.info("Replanning with %d validation errors.", len(rejection_errors))
     try:
-        args = generate_with_tool_call(
+        provider = OpenAIProvider()
+        args = provider.structured(
             prompt=replan_prompt,
             tool_name="create_execution_plan",
-            tool_schema=_EXECUTION_PLAN_TOOL_SCHEMA,
+            schema=_EXECUTION_PLAN_TOOL_SCHEMA,
             system=_PLANNER_SYSTEM,
         )
         args["images"] = image_ids

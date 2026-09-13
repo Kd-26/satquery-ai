@@ -20,7 +20,7 @@ from typing import Dict
 
 from backend.schemas.evidence_package import EvidencePackage
 from backend.schemas.execution_plan import ExecutionPlan
-from backend.services.vlm_service import generate, VLMError
+from backend.services.providers.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -120,16 +120,13 @@ def generate_answer(
     )
 
     try:
-        technical_answer = generate(
+        provider = OpenAIProvider()
+        technical_answer = provider.complete(
             prompt=technical_prompt,
             system=_TECHNICAL_SYSTEM,
-            images=[],                         # low-res overlays can be added here later
-            adapter=plan.final_adapter,        # None until LoRA is deployed
-            max_tokens=512,
-            reasoning_budget=256,
         )
         logger.info("Technical answer generated for run %s (len=%d)", evidence.run_id, len(technical_answer))
-    except VLMError as e:
+    except Exception as e:
         logger.error("VLM failed for technical answer (run %s): %s", evidence.run_id, e)
         technical_answer = _conservative_text_answer(query, evidence)
 
@@ -144,16 +141,13 @@ def generate_answer(
     )
 
     try:
-        plain_answer = generate(
+        provider = OpenAIProvider()
+        plain_answer = provider.complete(
             prompt=plain_prompt,
             system=_PLAIN_SYSTEM,
-            images=[],
-            adapter=plan.final_adapter,
-            max_tokens=512,
-            reasoning_budget=256,
         )
         logger.info("Plain answer generated for run %s (len=%d)", evidence.run_id, len(plain_answer))
-    except VLMError as e:
+    except Exception as e:
         logger.error("VLM failed for plain answer (run %s): %s", evidence.run_id, e)
         plain_answer = _conservative_text_answer(query, evidence)
 

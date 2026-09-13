@@ -22,7 +22,7 @@ import re
 from typing import Any, Dict, List
 
 from backend.schemas.input_profile import InputProfile
-from backend.services.vlm_service import generate as vlm_generate
+from backend.services.providers.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,8 @@ def classify_intent(query: str, input_profiles: List[InputProfile]) -> Dict[str,
     )
 
     try:
-        raw = vlm_generate(prompt=prompt, max_tokens=200, reasoning_budget=0)
+        provider = OpenAIProvider()
+        raw = provider.complete(prompt=prompt)
         cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
         parsed = json.loads(cleaned)
         if isinstance(parsed, dict) and "workflow_hint" in parsed:
