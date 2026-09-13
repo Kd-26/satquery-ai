@@ -1,0 +1,14 @@
+id: TOOL_AOI_ZONAL_STATISTICS
+type: scientific_tool
+modality: any
+input_contract:
+  requires_crs: true
+  requires_geometry: true
+  operations: [clip, count, mean, median, minimum, maximum, std]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Clips rasters to GeoJSON AOIs and computes statistics from finite pixels inside the zone."

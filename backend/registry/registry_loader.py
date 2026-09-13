@@ -1,4 +1,3 @@
-import os
 import yaml
 from pathlib import Path
 from backend.schemas.registry_entry import RegistryEntry

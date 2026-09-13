@@ -1,0 +1,13 @@
+id: TOOL_VISION_INTERPRET
+type: vlm_tool
+modality: visual
+input_contract:
+  requires_preview: true
+  quantitative_claims_allowed: false
+classes: null
+endpoint: null
+adapter_compatible: true
+calibrated_confidence: false
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Qualitative interpretation only; physical or numeric claims require scientific tools."

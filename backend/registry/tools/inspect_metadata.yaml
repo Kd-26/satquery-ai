@@ -1,0 +1,12 @@
+id: TOOL_INSPECT_METADATA
+type: scientific_tool
+modality: any
+input_contract:
+  requires_image: true
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Reads dimensions, bands, CRS, transform, nodata, sensor hints, and resolution without an LLM."

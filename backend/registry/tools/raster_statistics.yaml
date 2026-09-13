@@ -1,0 +1,13 @@
+id: TOOL_RASTER_STATISTICS
+type: scientific_tool
+modality: any
+input_contract:
+  requires_valid_mask: true
+  supported_ops: [mean, median, minimum, maximum, std]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Summarizes only valid finite pixels and preserves the source unit."

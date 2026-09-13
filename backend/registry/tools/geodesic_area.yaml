@@ -1,0 +1,14 @@
+id: TOOL_GEODESIC_AREA
+type: scientific_tool
+modality: any
+input_contract:
+  requires_mask: true
+  requires_crs: true
+  operations: [projected_affine_area, geodesic_polygon_area, pixel_coverage_fallback]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Uses projected affine cell area or WGS84 geodesic polygons; without georeferencing it reports pixel coverage rather than inventing physical area."

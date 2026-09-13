@@ -1,0 +1,13 @@
+id: TOOL_QUALITY_ASSESSMENT
+type: scientific_tool
+modality: any
+input_contract:
+  requires_image: true
+  supported_ops: [valid_mask, nodata_fraction, finite_fraction]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Computes quality metrics directly from raster values and verified nodata metadata."

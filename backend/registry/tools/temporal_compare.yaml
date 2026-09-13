@@ -1,0 +1,14 @@
+id: TOOL_TEMPORAL_COMPARE
+type: scientific_tool
+modality: temporal
+input_contract:
+  requires_pair: true
+  requires_alignment_check: true
+  supported_ops: [raster_difference, mean_absolute_change]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "Computes pixel differences only after grid compatibility checks."

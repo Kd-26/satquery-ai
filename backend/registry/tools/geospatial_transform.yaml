@@ -1,0 +1,13 @@
+id: TOOL_GEOSPATIAL_TRANSFORM
+type: scientific_tool
+modality: any
+input_contract:
+  requires_crs: true
+  operations: [validate_crs, reproject, resample, bounding_box_intersection]
+classes: null
+endpoint: null
+adapter_compatible: false
+calibrated_confidence: true
+version: "1.0.0"
+known_domain_shift_sensors: null
+notes: "CRS-aware reprojection and grid harmonization; nearest resampling is used for categorical data and bilinear for continuous rasters."
