@@ -5,6 +5,7 @@ Handles Multi-LoRA routing per-request and satellite image visual observations.
 import json
 import logging
 import os
+from pathlib import Path
 import requests
 from typing import Any, Dict, List, Optional
 
@@ -33,6 +34,28 @@ class QwenService(VisualProvider):
         ).rstrip("/")
         self.base_model = base_model or settings.modal_vlm_model_id or settings.qwen_base_model_path
         self.api_key = api_key or settings.modal_vlm_api_key
+
+    def _get_modal_credentials(self) -> tuple[Optional[str], Optional[str]]:
+        token_id = os.getenv("MODAL_TOKEN_ID")
+        token_secret = os.getenv("MODAL_TOKEN_SECRET")
+        if token_id and token_secret:
+            return token_id, token_secret
+
+        modal_config = Path.home() / ".modal.toml"
+        if modal_config.exists():
+            try:
+                import tomllib
+                with open(modal_config, "rb") as f:
+                    cfg = tomllib.load(f)
+                    # Get active profile or first profile
+                    for profile, data in cfg.items():
+                        if isinstance(data, dict) and data.get("active", False):
+                            return data.get("token_id"), data.get("token_secret")
+                        if isinstance(data, dict) and "token_id" in data:
+                            return data.get("token_id"), data.get("token_secret")
+            except Exception:
+                pass
+        return None, None
 
     def _call_vlm(
         self,
@@ -69,10 +92,19 @@ class QwenService(VisualProvider):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        # Attach Modal proxy authentication if available
+        token_id, token_secret = self._get_modal_credentials()
+        if token_id and token_secret:
+            import base64
+            auth_str = base64.b64encode(f"{token_id}:{token_secret}".encode()).decode()
+            headers["Proxy-Authorization"] = f"Basic {auth_str}"
+            headers["Modal-Token-Id"] = token_id
+            headers["Modal-Token-Secret"] = token_secret
+
         if self.endpoint:
             try:
                 url = f"{self.endpoint}/chat/completions" if not self.endpoint.endswith("/chat/completions") else self.endpoint
-                resp = requests.post(url, json=payload, headers=headers, timeout=120)
+                resp = requests.post(url, json=payload, headers=headers, timeout=180)
                 resp.raise_for_status()
                 data = resp.json()
                 text = ""
@@ -80,6 +112,8 @@ class QwenService(VisualProvider):
                     text = data["choices"][0].get("message", {}).get("content", "")
                 elif "text" in data:
                     text = data["text"]
+                elif "statement" in data:
+                    text = data["statement"]
                 return {
                     "statement": text,
                     "latency": resp.elapsed.total_seconds(),
