@@ -20,3 +20,4 @@ pyproj
 shapely
 reportlab
 titiler.core
+openai>=1.0.0
