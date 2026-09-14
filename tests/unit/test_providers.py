@@ -6,6 +6,7 @@ Unit tests for the Provider System:
 - ProviderService facade & health checking
 """
 import pytest
+from requests import ConnectionError as RequestsConnectionError
 from unittest.mock import MagicMock, patch
 
 from backend.services.providers.openai_provider import OpenAIProvider
@@ -107,6 +108,48 @@ def test_qwen_service_retries_modal_server_cold_start(monkeypatch):
         result = service.generate("health check")
     assert result == "Server is ready."
     assert post.call_count == 2
+
+
+def test_qwen_service_removes_visible_reasoning():
+    service = QwenService(endpoint="https://modal-app.modal.direct/v1")
+    response = MagicMock(status_code=200)
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "content": "Thinking Process:\nprivate reasoning\n</think>\nFinal answer."
+                }
+            }
+        ]
+    }
+    response.elapsed.total_seconds.return_value = 0.2
+    with patch("backend.services.providers.qwen_service.requests.post", return_value=response):
+        assert service.generate("test") == "Final answer."
+
+
+def test_qwen_service_rejects_truncated_reasoning():
+    service = QwenService(endpoint="https://modal-app.modal.direct/v1")
+    response = MagicMock(status_code=200)
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "choices": [{"message": {"content": "Thinking Process:\nunfinished"}}]
+    }
+    response.elapsed.total_seconds.return_value = 0.2
+    with patch("backend.services.providers.qwen_service.requests.post", return_value=response):
+        with pytest.raises(QwenServiceError, match="ended during reasoning"):
+            service.generate("test")
+
+
+def test_qwen_service_suppresses_http_exception_chain():
+    service = QwenService(endpoint="https://modal-app.modal.direct/v1")
+    with patch(
+        "backend.services.providers.qwen_service.requests.post",
+        side_effect=RequestsConnectionError("request details must remain private"),
+    ):
+        with pytest.raises(QwenServiceError) as raised:
+            service.generate("test")
+    assert raised.value.__cause__ is None
 
 
 def test_segmentation_provider():

@@ -32,14 +32,18 @@ class QwenService(VisualProvider):
         base_model: Optional[str] = None,
         api_key: Optional[str] = None,
     ):
-        self.endpoint = (
-            endpoint
-            or settings.modal_vlm_api_base
+        configured_endpoint = (
+            settings.modal_vlm_api_base
             or settings.visual_model_endpoint
             or os.getenv("MODAL_VLM_API_BASE", "")
-        ).rstrip("/")
-        self.base_model = base_model or settings.modal_vlm_model_id or settings.qwen_base_model_path
-        self.api_key = api_key or settings.modal_vlm_api_key
+        )
+        self.endpoint = (configured_endpoint if endpoint is None else endpoint).rstrip("/")
+        self.base_model = (
+            settings.modal_vlm_model_id or settings.qwen_base_model_path
+            if base_model is None
+            else base_model
+        )
+        self.api_key = settings.modal_vlm_api_key if api_key is None else api_key
 
     def _get_modal_credentials(self) -> tuple[Optional[str], Optional[str]]:
         """Return Modal *proxy* credentials, never Modal CLI API credentials."""
@@ -70,6 +74,17 @@ class QwenService(VisualProvider):
         if endpoint.endswith("/chat/completions"):
             return endpoint
         return f"{endpoint}/chat/completions"
+
+    @staticmethod
+    def _final_answer_text(text: str) -> str:
+        """Remove Qwen's visible reasoning block and return only its final answer."""
+        if "</think>" in text:
+            text = text.rsplit("</think>", 1)[1]
+        elif text.lstrip().startswith(("<think>", "Thinking Process:")):
+            raise QwenServiceError(
+                "Modal VLM response ended during reasoning before a final answer."
+            )
+        return text.strip()
 
     def _call_vlm(
         self,
@@ -157,7 +172,12 @@ class QwenService(VisualProvider):
         except QwenServiceError:
             raise
         except (requests.RequestException, ValueError) as exc:
-            raise QwenServiceError(f"Modal VLM request failed: {type(exc).__name__}") from exc
+            # A requests exception retains its PreparedRequest, including auth
+            # headers. Suppress exception chaining so proxy secrets cannot be
+            # exposed by a traceback or upstream exception logger.
+            raise QwenServiceError(
+                f"Modal VLM request failed: {type(exc).__name__}"
+            ) from None
 
         text: Any = ""
         if isinstance(data.get("choices"), list) and data["choices"]:
@@ -170,8 +190,11 @@ class QwenService(VisualProvider):
             text = "".join(
                 part.get("text", "") for part in text if isinstance(part, dict)
             )
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str):
             raise QwenServiceError("Modal VLM returned an empty or invalid text response.")
+        text = self._final_answer_text(text)
+        if not text:
+            raise QwenServiceError("Modal VLM returned an empty or invalid final answer.")
 
         confidence = data.get("confidence")
         if confidence is not None:
@@ -180,7 +203,7 @@ class QwenService(VisualProvider):
             except (TypeError, ValueError):
                 confidence = None
         return {
-            "statement": text.strip(),
+            "statement": text,
             "latency": resp.elapsed.total_seconds(),
             "adapter": adapter_id,
             "model": data.get("model") or self.base_model,
