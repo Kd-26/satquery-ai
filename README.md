@@ -83,12 +83,12 @@ Implemented now:
 - quality-gated spectral, SAR, temporal, reprojection, AOI, zonal-statistics, and area operations;
 - typed tool DAGs, evidence contracts, run manifests, provenance views, run history, and scientific workbench execution;
 - GeoTIFF, GeoJSON, CSV, STAC, PDF, and reproducible notebook exports;
-- NVIDIA/local provider fallback, external-image consent, and strict quantitative answer verification.
+- fine-tuned Qwen-only answer synthesis, cold-start retries, deterministic segmentation routing, and strict quantitative answer verification.
 
 Still required for production:
 
-- deployed segmentation and grounding model services;
-- production sensor-specific atmospheric correction and segmentation model endpoints;
+- deployment configuration for the segmentation and grounding model services;
+- production sensor-specific atmospheric correction and calibrated segmentation checkpoints;
 - persistent run state/object storage and production deployment configuration;
 - model evaluation, data manifests, and licence decisions.
 

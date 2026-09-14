@@ -13,8 +13,8 @@ The production boundary is role-based, not a generic provider fallback chain:
    valid-pixel checks, and physical-area calculations.
 5. Qwen on Modal observes a scene or compares a pair using the workflow adapter.
    Its observations are qualitative and stored separately from numeric claims.
-6. Qwen synthesizes the technical and plain-language answers from the complete
-   EvidencePackage. It never calculates a measurement.
+6. The deployed fine-tuned Qwen synthesizes every user-facing answer from the
+   complete EvidencePackage. There is no provider or base-model answer fallback.
 7. The deterministic verifier checks every number, unit, confidence, and identifier.
    OpenAI can add semantic failures but can never override a deterministic failure.
 8. A rejected narrative is replaced by the deterministic evidence-only report.
@@ -49,6 +49,7 @@ Set the endpoint base and the exact model name shown by the deployed Modal endpo
 MODAL_VLM_API_BASE=https://coderkd26--satquery-vlm-l40s-satqueryl40sserver.us-east.modal.direct/v1
 MODAL_VLM_MODEL_ID=satquery-vlm
 MODAL_REQUEST_TIMEOUT_S=600
+MODAL_ATTEMPT_TIMEOUT_S=120
 ```
 
 For a Web Function protected with `requires_proxy_auth=True`, create a Modal **Proxy
@@ -119,19 +120,38 @@ continue, but Qwen visual enrichment is recorded as skipped. A purely visual que
 fails clearly because it cannot run without sending its preview to the configured
 visual provider.
 
-An unavailable Qwen synthesis endpoint yields a local evidence-only answer. An
-unavailable Qwen observation never produces a mock statement. Missing OpenAI
+An unavailable Qwen synthesis endpoint fails the run clearly; SatQuery never switches
+the answer to a base model or another provider. A Qwen answer rejected by the verifier
+may be replaced only by a deterministic evidence-only report. An unavailable Qwen
+observation never produces a mock statement. Missing OpenAI
 credentials cause structured intent to use the deterministic heuristic, while planning
 requests that require the agent fail clearly until the OpenAI key is configured.
-Modal Servers return HTTP 503 while scaling from zero; the client retries that status
-with bounded exponential backoff for up to `MODAL_REQUEST_TIMEOUT_S` seconds.
+The client treats connection drops, timeouts, HTTP 408/425/429, and transient 5xx
+responses as cold-start conditions and retries the same Qwen deployment with bounded
+exponential backoff for up to `MODAL_REQUEST_TIMEOUT_S` seconds.
+
+## Deployed segmentation service
+
+Set the first-party segmentation deployment and its cold-start budgets:
+
+```dotenv
+SATQUERY_SEGMENTATION_BASE_URL=https://your-segmentation-deployment
+SEGMENTATION_REQUEST_TIMEOUT_S=600
+SEGMENTATION_ATTEMPT_TIMEOUT_S=120
+```
+
+The service must expose `/v1/segment/landcover`, `/v1/segment/multispectral`,
+and `/v1/segment/sar` as applicable. The deterministic router and validator bind
+mask/area requests to registered segmentation models even if the planner omits one.
+Transient cold-start failures retry the same deployment. Invalid responses or a
+deployment that remains unavailable fail the run; no heuristic mask is fabricated.
 
 ## Verification
 
 Run the offline contract suite:
 
 ```bash
-pytest -q
+pytest -q tests/unit
 ```
 
 After credentials and services are available, start the API and inspect role/config
