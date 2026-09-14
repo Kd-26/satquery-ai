@@ -107,11 +107,27 @@ class QwenService(VisualProvider):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": content})
+        # The deployed fine-tuned Qwen3.5 checkpoint can ignore the request-
+        # level non-thinking flag for complex evidence prompts and loop until
+        # max_tokens. vLLM supports continuing an assistant prefill; placing an
+        # already-closed thinking block there forces generation to begin with
+        # the final answer while retaining the standard chat template.
+        messages.append({"role": "assistant", "content": "<think>\n\n</think>\n\n"})
 
         payload = {
             "model": self.base_model,
             "messages": messages,
-            "temperature": 0.2,
+            # Qwen3.5 defaults to an often very long thinking block. Use its
+            # documented non-thinking request contract for bounded, direct
+            # production answers; _final_answer_text remains a safety net for
+            # deployments whose tokenizer template ignores this flag.
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "top_k": 20,
+            "presence_penalty": 1.5,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "continue_final_message": True,
+            "add_generation_prompt": False,
             "max_tokens": max_tokens,
         }
         if adapter_id:

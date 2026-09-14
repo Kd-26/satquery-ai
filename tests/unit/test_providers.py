@@ -81,6 +81,15 @@ def test_qwen_service_observe_and_compare_contract():
         obs = service.observe(["http://example.com/img.png"], "Observe water coverage")
         assert obs["statement"].startswith("Visible water-like")
         assert post.call_args.kwargs["json"]["adapter_id"] == "lora_optical_v1"
+        assert post.call_args.kwargs["json"]["chat_template_kwargs"] == {
+            "enable_thinking": False
+        }
+        assert post.call_args.kwargs["json"]["continue_final_message"] is True
+        assert post.call_args.kwargs["json"]["add_generation_prompt"] is False
+        assert post.call_args.kwargs["json"]["messages"][-1] == {
+            "role": "assistant",
+            "content": "<think>\n\n</think>\n\n",
+        }
 
         comp = service.compare(
             "http://example.com/t1.png",

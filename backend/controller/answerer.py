@@ -44,9 +44,12 @@ _TECHNICAL_SYSTEM = (
     "2. State every measurement with its unit (ha, km², m, %, etc.).\n"
     "3. Round values to at most 2 significant figures — do not add false precision.\n"
     "4. You MUST disclose every limitation listed in the evidence.\n"
-    "5. If confidence is below 0.7, call it out explicitly.\n"
-    "6. Reference the sensor, resolution, and acquisition context when relevant.\n"
-    "7. If no measurement exists for a claim, say 'insufficient data'."
+    "5. If confidence is below 0.7, call it out explicitly. A confidence of exactly 0.7 is not below 0.7.\n"
+    "6. Reference sensor, resolution, or acquisition context only when it is explicitly present in the evidence.\n"
+    "7. If no measurement exists for a claim, say 'insufficient data'.\n"
+    "8. Do not refer to a region unless the evidence explicitly defines one shared region.\n"
+    "9. Do not comment on information that is absent; simply omit it.\n"
+    "10. Output only measurement bullets followed by the listed limitations, with no introduction or conclusion."
 )
 
 _PLAIN_SYSTEM = (
@@ -59,7 +62,9 @@ _PLAIN_SYSTEM = (
     "4. Disclose all limitations — but explain them in plain English, not jargon.\n"
     "5. If confidence is below 0.7, say 'the analysis has significant uncertainty' "
     "and explain why simply.\n"
-    "6. End with one practical takeaway sentence."
+    "6. Do not explain what a confidence value implies about accuracy or precision unless the evidence says so.\n"
+    "7. Do not interpret an index value as vegetation condition, health, growth, or land cover unless that interpretation is an evidence claim.\n"
+    "8. End with one practical takeaway sentence that does not add a factual interpretation."
 )
 
 
@@ -133,8 +138,9 @@ def generate_answer(
         f"USER QUERY: {query}\n\n"
         f"{evidence_text}\n\n"
         "Write a concise technical answer to the query using ONLY the verified measurements above. "
-        "Include the exact evidence units, confidence levels, sensor context, and all limitations. "
-        "Do not include any number that is not in the evidence above."
+        "Include the evidence units, confidence levels, any explicitly supplied sensor context, and all limitations. "
+        "Do not include any number that is not in the evidence above. Do not mention a specified region or "
+        "describe missing context. Output only evidence-backed measurement bullets and limitation bullets."
     )
 
     try:
@@ -155,6 +161,7 @@ def generate_answer(
         f"{evidence_text}\n\n"
         "Write a plain-language answer to the query for a non-expert. "
         "Explain the measurements simply but do not calculate or invent comparisons. "
+        "Report index values without interpreting vegetation condition or what confidence implies. "
         "Do not include any number that is not in the evidence above. "
         "Keep it under 3 short paragraphs."
     )
