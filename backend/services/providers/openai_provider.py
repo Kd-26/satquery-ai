@@ -76,6 +76,7 @@ class OpenAIProvider(AgentProvider):
                     "name": tool_name,
                     "description": f"Submit the {tool_name}.",
                     "parameters": schema,
+                    "strict": True,
                 },
             }
         ]
@@ -92,9 +93,16 @@ class OpenAIProvider(AgentProvider):
 
             message = response.choices[0].message
             if message.tool_calls and len(message.tool_calls) > 0:
-                arguments = message.tool_calls[0].function.arguments
+                tool_call = message.tool_calls[0]
+                if tool_call.function.name != tool_name:
+                    raise ValueError(
+                        f"Expected tool {tool_name}, received {tool_call.function.name}."
+                    )
+                arguments = tool_call.function.arguments
                 if isinstance(arguments, str):
-                    return json.loads(arguments)
+                    arguments = json.loads(arguments)
+                if not isinstance(arguments, dict):
+                    raise ValueError(f"Tool {tool_name} returned non-object arguments.")
                 return arguments
 
             raise ValueError(f"No tool calls found in OpenAI response for tool {tool_name}.")

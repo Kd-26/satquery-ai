@@ -3,7 +3,7 @@ backend/controller/planner.py
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 The Planning Agent.
 
-Uses the VLM (NIM / nemotron-3-nano-omni reasoning model) via TOOL CALLING
+Uses the OpenAI agent brain via strict TOOL CALLING
 to produce a guaranteed-structured ExecutionPlan.  Tool calling is used instead
 of free-form JSON parsing because:
   - The model's reasoning budget runs internally before it commits arguments
@@ -23,13 +23,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from backend.schemas.input_profile import InputProfile
 from backend.schemas.execution_plan import ExecutionPlan
 from backend.registry import registry_loader
-from backend.services.provider_service import generate_with_tool_call
-from backend.services.vlm_service import VLMToolCallError
+from backend.services.provider_service import generate_agent_with_tool_call
 from backend.controller.intent import classify_intent
 
 logger = logging.getLogger(__name__)
@@ -168,7 +167,11 @@ Profiles: 1 optical image with NIR band
 # Prompt builder
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_planner_prompt(query: str, input_profiles: list[InputProfile]) -> str:
+def _build_planner_prompt(
+    query: str,
+    input_profiles: list[InputProfile],
+    intent_hints: Optional[dict[str, Any]] = None,
+) -> str:
     """Build the full planning prompt including registry context, intent hints, and profiles."""
     registry_entries = registry_loader.query()
     registry_summary = []
@@ -184,7 +187,7 @@ def _build_planner_prompt(query: str, input_profiles: list[InputProfile]) -> str
         })
 
     profiles_summary = [p.model_dump() for p in input_profiles]
-    intent_hints = classify_intent(query, input_profiles)
+    intent_hints = intent_hints or classify_intent(query, input_profiles)
 
     prompt = (
         f"{_FEW_SHOT_EXAMPLES}\n\n"
@@ -213,7 +216,12 @@ def _build_planner_prompt(query: str, input_profiles: list[InputProfile]) -> str
 # Public: initial plan
 # ─────────────────────────────────────────────────────────────────────────────
 
-def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -> ExecutionPlan:
+def plan(
+    query: str,
+    image_ids: list[str],
+    input_profiles: list[InputProfile],
+    intent_hints: Optional[dict[str, Any]] = None,
+) -> ExecutionPlan:
     """
     Ask the VLM (via tool calling) to produce an ExecutionPlan.
     Retries once with error context if the model returns unexpected output.
@@ -221,10 +229,10 @@ def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -
     Raises:
         PlannerParseError — after all retries are exhausted.
     """
-    prompt = _build_planner_prompt(query, input_profiles)
+    prompt = _build_planner_prompt(query, input_profiles, intent_hints)
 
     try:
-        args = generate_with_tool_call(
+        args = generate_agent_with_tool_call(
             prompt=prompt,
             tool_name="create_execution_plan",
             tool_schema=_EXECUTION_PLAN_TOOL_SCHEMA,
@@ -234,7 +242,7 @@ def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -
         args["images"] = image_ids
         return ExecutionPlan.model_validate(args)
 
-    except (VLMToolCallError, Exception) as first_err:
+    except Exception as first_err:
         logger.warning("Planner first attempt failed: %s — retrying with error context.", first_err)
         retry_prompt = (
             f"{prompt}\n\n"
@@ -244,7 +252,7 @@ def plan(query: str, image_ids: list[str], input_profiles: list[InputProfile]) -
             "Do NOT return plain text."
         )
         try:
-            args = generate_with_tool_call(
+            args = generate_agent_with_tool_call(
                 prompt=retry_prompt,
                 tool_name="create_execution_plan",
                 tool_schema=_EXECUTION_PLAN_TOOL_SCHEMA,
@@ -268,6 +276,7 @@ def replan(
     input_profiles: list[InputProfile],
     rejected_plan: ExecutionPlan,
     rejection_errors: list[str],
+    intent_hints: Optional[dict[str, Any]] = None,
 ) -> ExecutionPlan:
     """
     Self-reflection loop: the model sees its own rejected plan + validation
@@ -278,7 +287,7 @@ def replan(
     Raises:
         PlannerParseError — if the corrected plan also fails to parse.
     """
-    base_prompt  = _build_planner_prompt(query, input_profiles)
+    base_prompt  = _build_planner_prompt(query, input_profiles, intent_hints)
     error_lines  = "\n".join(f"  • {e}" for e in rejection_errors)
     replan_prompt = (
         f"{base_prompt}\n\n"
@@ -298,7 +307,7 @@ def replan(
 
     logger.info("Replanning with %d validation errors.", len(rejection_errors))
     try:
-        args = generate_with_tool_call(
+        args = generate_agent_with_tool_call(
             prompt=replan_prompt,
             tool_name="create_execution_plan",
             tool_schema=_EXECUTION_PLAN_TOOL_SCHEMA,

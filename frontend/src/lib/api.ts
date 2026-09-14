@@ -82,6 +82,30 @@ export interface AnswerObj {
   technical: string;
 }
 
+export interface IntentHints {
+  workflow_hint: "single" | "temporal" | "crossmodal";
+  analysis_type: "change_detection" | "segmentation" | "spectral_index" | "measurement" | "general";
+  target_classes_hint: string[];
+  suggested_tools: string[];
+  requires_area: boolean;
+}
+
+export interface VisualObservation {
+  kind: "scene" | "temporal" | "crossmodal";
+  statement: string;
+  source_images: string[];
+  adapter?: string | null;
+  model: string;
+  confidence?: number | null;
+  limitations: string[];
+}
+
+export interface VerificationResult {
+  passed: boolean;
+  flagged_claims: string[];
+  notes: string[];
+}
+
 export type RunStatusValue = "pending" | "running" | "done" | "failed" | "cancelled";
 
 export interface RunResult {
@@ -97,6 +121,12 @@ export interface RunResult {
   traces?: TraceStep[];
   image_ids?: string[];
   route?: { mode: string; required_tools: string[]; reason: string; requires_segmentation: boolean; claim_policy: string };
+  intent?: IntentHints;
+  observations?: VisualObservation[];
+  verification?: {
+    technical?: VerificationResult;
+    plain_language?: VerificationResult;
+  };
   tool_graph?: { nodes: Array<{ id: string; tool: string; depends_on: string[]; required: boolean; version: string }> };
   tool_outputs?: Record<string, unknown>;
 }

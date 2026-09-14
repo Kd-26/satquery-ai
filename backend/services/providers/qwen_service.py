@@ -2,9 +2,11 @@
 Visual Specialist implementation using fine-tuned VLM (e.g. Qwen / Custom VLM on Modal).
 Handles Multi-LoRA routing per-request and satellite image visual observations.
 """
-import json
+import base64
 import logging
+import mimetypes
 import os
+import time
 from pathlib import Path
 import requests
 from typing import Any, Dict, List, Optional
@@ -13,6 +15,10 @@ from backend.core.config import settings
 from backend.services.providers.base import VisualProvider
 
 logger = logging.getLogger(__name__)
+
+
+class QwenServiceError(RuntimeError):
+    """Raised when the Modal visual-specialist contract cannot be satisfied."""
 
 
 class QwenService(VisualProvider):
@@ -36,26 +42,34 @@ class QwenService(VisualProvider):
         self.api_key = api_key or settings.modal_vlm_api_key
 
     def _get_modal_credentials(self) -> tuple[Optional[str], Optional[str]]:
-        token_id = os.getenv("MODAL_TOKEN_ID")
-        token_secret = os.getenv("MODAL_TOKEN_SECRET")
-        if token_id and token_secret:
-            return token_id, token_secret
+        """Return Modal *proxy* credentials, never Modal CLI API credentials."""
+        token_id = settings.modal_proxy_token_id or os.getenv("MODAL_PROXY_TOKEN_ID")
+        token_secret = settings.modal_proxy_token_secret or os.getenv("MODAL_PROXY_TOKEN_SECRET")
+        if bool(token_id) != bool(token_secret):
+            raise QwenServiceError(
+                "Both MODAL_PROXY_TOKEN_ID and MODAL_PROXY_TOKEN_SECRET must be configured together."
+            )
+        return token_id or None, token_secret or None
 
-        modal_config = Path.home() / ".modal.toml"
-        if modal_config.exists():
-            try:
-                import tomllib
-                with open(modal_config, "rb") as f:
-                    cfg = tomllib.load(f)
-                    # Get active profile or first profile
-                    for profile, data in cfg.items():
-                        if isinstance(data, dict) and data.get("active", False):
-                            return data.get("token_id"), data.get("token_secret")
-                        if isinstance(data, dict) and "token_id" in data:
-                            return data.get("token_id"), data.get("token_secret")
-            except Exception:
-                pass
-        return None, None
+    @staticmethod
+    def _image_block(image: str) -> Dict[str, Any]:
+        if image.startswith(("http://", "https://", "data:")):
+            url = image
+        else:
+            path = Path(image)
+            if not path.is_file():
+                raise QwenServiceError(f"Visual input does not exist: {image}")
+            mime = mimetypes.guess_type(path.name)[0] or "image/png"
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            url = f"data:{mime};base64,{encoded}"
+        return {"type": "image_url", "image_url": {"url": url}}
+
+    @staticmethod
+    def _completion_url(endpoint: str) -> str:
+        endpoint = endpoint.rstrip("/")
+        if endpoint.endswith("/chat/completions"):
+            return endpoint
+        return f"{endpoint}/chat/completions"
 
     def _call_vlm(
         self,
@@ -72,7 +86,7 @@ class QwenService(VisualProvider):
         images = images or []
         content = [{"type": "text", "text": prompt}]
         for img in images:
-            content.append({"type": "image_url", "image_url": {"url": img}})
+            content.append(self._image_block(img))
 
         messages = []
         if system:
@@ -92,46 +106,86 @@ class QwenService(VisualProvider):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        # Attach Modal proxy authentication if available
+        # Modal proxy tokens use Modal-Key/Modal-Secret. MODAL_VLM_API_KEY is
+        # reserved for an endpoint-defined bearer token or the combined
+        # wk-...ws-... proxy-token form.
         token_id, token_secret = self._get_modal_credentials()
         if token_id and token_secret:
-            import base64
-            auth_str = base64.b64encode(f"{token_id}:{token_secret}".encode()).decode()
-            headers["Proxy-Authorization"] = f"Basic {auth_str}"
-            headers["Modal-Token-Id"] = token_id
-            headers["Modal-Token-Secret"] = token_secret
+            headers["Modal-Key"] = token_id
+            headers["Modal-Secret"] = token_secret
 
-        if self.endpoint:
+        if not self.endpoint:
+            raise QwenServiceError("MODAL_VLM_API_BASE is not configured.")
+
+        # Modal Servers return 503 while scaling from zero. The first request
+        # triggers startup, so retry only that status with bounded exponential
+        # backoff until the configured total cold-start budget is exhausted.
+        deadline = time.monotonic() + settings.modal_request_timeout_s
+        delay_s = 1.0
+        attempts = 0
+        try:
+            while True:
+                attempts += 1
+                remaining_s = deadline - time.monotonic()
+                if remaining_s <= 0:
+                    raise QwenServiceError(
+                        f"Modal VLM was not ready after {attempts - 1} attempts."
+                    )
+                resp = requests.post(
+                    self._completion_url(self.endpoint),
+                    json=payload,
+                    headers=headers,
+                    timeout=min(60.0, remaining_s),
+                    allow_redirects=True,
+                )
+                if resp.status_code != 503:
+                    break
+                sleep_s = min(delay_s, max(0.0, deadline - time.monotonic()))
+                if sleep_s <= 0:
+                    raise QwenServiceError(
+                        f"Modal VLM remained unavailable after {attempts} attempts."
+                    )
+                logger.info(
+                    "Modal Server is scaling from zero; retrying in %.1fs (attempt %d).",
+                    sleep_s,
+                    attempts,
+                )
+                time.sleep(sleep_s)
+                delay_s = min(delay_s * 2.0, 10.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except QwenServiceError:
+            raise
+        except (requests.RequestException, ValueError) as exc:
+            raise QwenServiceError(f"Modal VLM request failed: {type(exc).__name__}") from exc
+
+        text: Any = ""
+        if isinstance(data.get("choices"), list) and data["choices"]:
+            text = data["choices"][0].get("message", {}).get("content", "")
+        elif "text" in data:
+            text = data["text"]
+        elif "statement" in data:
+            text = data["statement"]
+        if isinstance(text, list):
+            text = "".join(
+                part.get("text", "") for part in text if isinstance(part, dict)
+            )
+        if not isinstance(text, str) or not text.strip():
+            raise QwenServiceError("Modal VLM returned an empty or invalid text response.")
+
+        confidence = data.get("confidence")
+        if confidence is not None:
             try:
-                url = f"{self.endpoint}/chat/completions" if not self.endpoint.endswith("/chat/completions") else self.endpoint
-                resp = requests.post(url, json=payload, headers=headers, timeout=180)
-                resp.raise_for_status()
-                data = resp.json()
-                text = ""
-                if "choices" in data and len(data["choices"]) > 0:
-                    text = data["choices"][0].get("message", {}).get("content", "")
-                elif "text" in data:
-                    text = data["text"]
-                elif "statement" in data:
-                    text = data["statement"]
-                return {
-                    "statement": text,
-                    "latency": resp.elapsed.total_seconds(),
-                    "adapter": adapter_id,
-                    "model": self.base_model,
-                    "confidence": 0.90,
-                }
-            except Exception as e:
-                logger.warning(f"Modal VLM call to {self.endpoint} failed ({e}); using heuristic observer.")
-
-        # Heuristic fallback if endpoint is not actively deployed
+                confidence = min(1.0, max(0.0, float(confidence)))
+            except (TypeError, ValueError):
+                confidence = None
         return {
-            "statement": f"Visual observation from fine-tuned VLM (adapter: {adapter_id or 'default'}): {prompt[:80]}",
-            "latency": 0.1,
+            "statement": text.strip(),
+            "latency": resp.elapsed.total_seconds(),
             "adapter": adapter_id,
-            "model": self.base_model,
-            "confidence": 0.85,
-            "limitations": ["Visual observation; georeferenced measurements computed by deterministic raster tools."],
+            "model": data.get("model") or self.base_model,
+            "confidence": confidence,
+            "limitations": data.get("limitations", []),
         }
 
     def observe(self, images: List[str], prompt: str, adapter_id: Optional[str] = None) -> Dict[str, Any]:
@@ -157,10 +211,25 @@ class QwenService(VisualProvider):
     def health(self) -> Dict[str, Any]:
         """Return health status."""
         configured = bool(self.endpoint)
+        try:
+            proxy_id, proxy_secret = self._get_modal_credentials()
+            credential_error = None
+        except QwenServiceError as exc:
+            proxy_id, proxy_secret = None, None
+            credential_error = str(exc)
+        if proxy_id and proxy_secret:
+            auth_mode = "modal_proxy_token"
+        elif self.api_key:
+            auth_mode = "bearer_token"
+        else:
+            auth_mode = "none"
         return {
-            "status": "ok" if configured else "unconfigured",
+            "status": "misconfigured" if credential_error else ("ok" if configured else "unconfigured"),
             "provider": "modal_vlm",
             "endpoint": self.endpoint or "not set",
             "model": self.base_model,
             "configured": configured,
+            "authenticated": auth_mode != "none",
+            "auth_mode": auth_mode,
+            "credential_error": credential_error,
         }

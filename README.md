@@ -52,7 +52,8 @@ The expanded lifecycle is in [docs/03-inference-lifecycle.md](docs/03-inference-
 | Raster/geospatial | Rasterio, PyProj, Shapely, NumPy | Implemented core operations |
 | ML | PyTorch, Hugging Face, MMSegmentation, Albumentations, Roboflow | Proposed |
 | Specialist models | SegFormer-B2, four-band SegFormer, SAR U-Net, optional ChangeFormer | Proposed |
-| VLM | Provider-neutral NVIDIA NIM or OpenAI-compatible local endpoint | Implemented; credentials/model deployment required |
+| Agent brain | OpenAI GPT-4o strict tool calls | Implemented; credential required |
+| Visual specialist and answerer | Fine-tuned Qwen VLM on an OpenAI-compatible Modal endpoint | Implemented client; Modal deployment/credentials required |
 | Orchestration | Deterministic router plus validated Pydantic tool DAG | Implemented |
 | Scientific tools | NumPy, Rasterio, Shapely, PyProj | Implemented core tools |
 | Serving and storage | Ray Serve, compatible vLLM, PostgreSQL/PostGIS, object storage | Proposed |
@@ -102,6 +103,7 @@ Development should proceed through the gates in [docs/14-roadmap.md](docs/14-roa
 - [API and data contracts](docs/10-api-and-data-contracts.md), [evaluation plan](docs/11-evaluation-plan.md), and [deployment plan](docs/12-deployment-plan.md)
 - [Risk register](docs/13-risk-register.md), [execution roadmap](docs/14-roadmap.md), and [demo scenarios](docs/15-demo-scenarios.md)
 - [Research and standards](docs/16-research-and-standards.md), [glossary](docs/glossary.md), and [architecture decisions](docs/decisions/README.md)
+- [Hybrid OpenAI + Modal setup](docs/17-hybrid-openai-modal-setup.md)
 - [Data policy](data/README.md), [artifact policy](artifacts/README.md), [contribution guide](CONTRIBUTING.md), and [security policy](SECURITY.md)
 
 ## Safety and scientific validity

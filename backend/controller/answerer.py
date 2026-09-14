@@ -2,7 +2,7 @@
 backend/controller/answerer.py
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Generates the two answer variants (technical + plain-language) from an
-EvidencePackage using the NIM VLM.
+EvidencePackage using the fine-tuned Qwen VLM on Modal.
 
 Architectural rules (enforced by prompt design):
   • The VLM NEVER sees raw rasters or high-res masks.
@@ -20,7 +20,13 @@ from typing import Dict
 
 from backend.schemas.evidence_package import EvidencePackage
 from backend.schemas.execution_plan import ExecutionPlan
-from backend.services.provider_service import generate, ProviderError
+from backend.core.config import settings
+from backend.services.provider_service import (
+    ProviderError,
+    generate_agent_text,
+    generate_domain_text,
+    observe_visual,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +81,14 @@ def _serialise_evidence(evidence: EvidencePackage) -> str:
             f"[tool={c.tool}]  [region={c.region_id}]"
         )
 
+    if evidence.observations:
+        lines.append("\n=== QUALITATIVE QWEN OBSERVATIONS (NOT NUMERIC AUTHORITY) ===")
+        for observation in evidence.observations:
+            lines.append(
+                f"• [{observation.kind}; model={observation.model}; "
+                f"adapter={observation.adapter or 'base'}] {observation.statement}"
+            )
+
     if evidence.limitations:
         lines.append("\n=== KNOWN LIMITATIONS ===")
         for lim in evidence.limitations:
@@ -107,6 +121,12 @@ def generate_answer(
     having no invented numbers, which passes cleanly).
     """
     evidence_text = _serialise_evidence(evidence)
+    adapter = {
+        "temporal": settings.lora_temporal,
+        "crossmodal": settings.lora_crossmodal,
+    }.get(plan.workflow, settings.lora_general)
+    if plan.final_adapter:
+        adapter = plan.final_adapter
 
     # ── Technical answer ─────────────────────────────────────────────────────
     technical_prompt = (
@@ -118,13 +138,11 @@ def generate_answer(
     )
 
     try:
-        technical_answer = generate(
+        technical_answer = generate_domain_text(
             prompt=technical_prompt,
             system=_TECHNICAL_SYSTEM,
-            images=[],                         # low-res overlays can be added here later
-            adapter=plan.final_adapter,        # None until LoRA is deployed
+            adapter=adapter,
             max_tokens=512,
-            reasoning_budget=256,
         )
         logger.info("Technical answer generated for run %s (len=%d)", evidence.run_id, len(technical_answer))
     except ProviderError as e:
@@ -142,13 +160,11 @@ def generate_answer(
     )
 
     try:
-        plain_answer = generate(
+        plain_answer = generate_domain_text(
             prompt=plain_prompt,
             system=_PLAIN_SYSTEM,
-            images=[],
-            adapter=plan.final_adapter,
+            adapter=adapter,
             max_tokens=512,
-            reasoning_budget=256,
         )
         logger.info("Plain answer generated for run %s (len=%d)", evidence.run_id, len(plain_answer))
     except ProviderError as e:
@@ -205,12 +221,14 @@ def generate_direct_answer(query: str, images: list[str] | None = None, metadata
     prompt = query
     if metadata:
         prompt += f"\n\nVERIFIED IMAGE METADATA:\n{metadata}"
-    text = generate(
-        prompt=prompt,
-        system=system,
-        images=images or [],
-        external_image_consent=external_image_consent,
-        max_tokens=700,
-        reasoning_budget=256,
-    )
+    if visual:
+        result = observe_visual(
+            images=images or [],
+            prompt=f"{system}\n\n{prompt}",
+            adapter_id=settings.lora_general,
+            external_image_consent=external_image_consent,
+        )
+        text = str(result["statement"])
+    else:
+        text = generate_agent_text(prompt=prompt, system=system, max_tokens=700)
     return {"technical": text, "plain_language": text}

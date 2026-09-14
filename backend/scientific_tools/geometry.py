@@ -1,20 +1,25 @@
 import numpy as np
 from affine import Affine
 
+
 class UnverifiedGeometryError(Exception):
     pass
 
+
 def measure_regions(mask: np.ndarray, pixel_spacing_m: float = None, crs: str = None, transform=None) -> dict:
-    if pixel_spacing_m is None or crs is None:
-        raise UnverifiedGeometryError("Cannot calculate physical area: pixel_spacing_m or crs is missing.")
-        
+    if crs is None:
+        raise UnverifiedGeometryError("Cannot calculate physical area: CRS is missing.")
+    if transform is None and pixel_spacing_m is None:
+        raise UnverifiedGeometryError(
+            "Cannot calculate physical area: both affine transform and pixel spacing are missing."
+        )
+
     pixel_count = int(np.sum(mask > 0))
 
     if transform is not None and crs:
-        affine = transform if isinstance(transform, Affine) else Affine(*transform[:6])
         try:
             from rasterio.crs import CRS
-
+            affine = transform if isinstance(transform, Affine) else Affine(*transform[:6])
             parsed_crs = CRS.from_user_input(crs)
             if parsed_crs.is_projected:
                 _, unit_factor = parsed_crs.linear_units_factor
@@ -38,8 +43,6 @@ def measure_regions(mask: np.ndarray, pixel_spacing_m: float = None, crs: str = 
                 for geom, value in shapes(binary, mask=binary.astype(bool), transform=affine):
                     if value:
                         area_m2 += abs(geod.geometry_area_perimeter(shape(geom))[0])
-                method = "geodesic_polygon"
-                uncertainty_pct = 0.5
                 return {
                     "pixel_count": pixel_count,
                     "area_m2": float(area_m2),
@@ -48,21 +51,24 @@ def measure_regions(mask: np.ndarray, pixel_spacing_m: float = None, crs: str = 
                     "method": "geodesic_polygon",
                     "uncertainty_pct": 0.5,
                 }
-        except Exception:
-            pass
-    
-    # Basic check if CRS looks geographic
-    is_geographic = False
-    if crs and ("EPSG:4326" in crs.upper() or "GEOGCS" in crs.upper() or "WGS 84" in crs.upper()):
-        is_geographic = True
-        
-    # In a full implementation, if is_geographic is True, we would use pyproj.Geod 
-    # to calculate the exact geodesic area of the polygons formed by the mask.
-    # For this baseline, we use the provided pixel_spacing_m as the linear dimension.
-    
+            raise UnverifiedGeometryError(f"CRS {crs!r} is neither projected nor geographic.")
+        except UnverifiedGeometryError:
+            raise
+        except Exception as exc:
+            raise UnverifiedGeometryError(
+                f"Exact area calculation failed for CRS {crs!r}: {type(exc).__name__}."
+            ) from exc
+
+    # No affine transform is available, so this is explicitly approximate even
+    # if the CRS itself is known.
+    is_geographic = any(
+        marker in crs.upper() for marker in ("EPSG:4326", "GEOGCS", "WGS 84")
+    )
+    if pixel_spacing_m is None:
+        raise UnverifiedGeometryError("Pixel spacing is required when no affine transform is available.")
     area_m2 = float(pixel_count * (pixel_spacing_m ** 2))
     area_ha = area_m2 / 10000.0
-    
+
     return {
         "pixel_count": pixel_count,
         "area_m2": area_m2,

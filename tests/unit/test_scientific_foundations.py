@@ -61,6 +61,19 @@ def test_projected_area_uses_affine_determinant():
     assert result["method"] == "projected_affine"
 
 
+def test_geographic_area_uses_geodesic_polygon_without_pixel_spacing():
+    mask = np.ones((1, 1), dtype=np.uint8)
+    result = measure_regions(
+        mask,
+        pixel_spacing_m=None,
+        crs="EPSG:4326",
+        transform=Affine(1, 0, 0, 0, -1, 1),
+    )
+    assert result["method"] == "geodesic_polygon"
+    assert result["is_geographic"] is True
+    assert result["area_m2"] == pytest.approx(12_308_778_361, rel=0.01)
+
+
 def test_aoi_clip_and_zonal_statistics():
     array = np.arange(16, dtype=np.float32).reshape(4, 4)
     geometry = {"type": "Polygon", "coordinates": [[[0, 4], [2, 4], [2, 2], [0, 2], [0, 4]]]}

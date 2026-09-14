@@ -14,7 +14,7 @@ import numpy as np
 from backend.schemas.evidence_package import EvidencePackage, Claim
 from backend.schemas.execution_plan import ExecutionPlan
 from backend.schemas.input_profile import InputProfile
-from backend.controller.verifier import verify_answer, get_conservative_fallback
+from backend.controller.verifier import verify_answer, verify_answer_hybrid, get_conservative_fallback
 from backend.controller.intent import classify_intent
 from backend.controller.answerer import _serialise_evidence, _conservative_text_answer
 from backend.controller.executor import _vlm_class_scoring, ExecutorError
@@ -78,6 +78,18 @@ def test_verifier_detects_hallucinated_number(sample_evidence):
     res = verify_answer(text, sample_evidence)
     assert res.passed is False
     assert any("999" in f for f in res.flagged_claims)
+
+
+def test_verifier_detects_small_hallucinated_number_with_unit(sample_evidence):
+    res = verify_answer("A secondary pool covers 5 ha.", sample_evidence)
+    assert res.passed is False
+    assert any("5 ha" in f for f in res.flagged_claims)
+
+
+def test_verifier_rejects_correct_value_with_wrong_area_unit(sample_evidence):
+    res = verify_answer("The lake covers 14.5 km².", sample_evidence)
+    assert res.passed is False
+    assert any("14.5 km²" in f for f in res.flagged_claims)
 
 
 def test_verifier_detects_unknown_uuid(sample_evidence):
@@ -178,3 +190,30 @@ def test_answerer_conservative_text_passes_verifier(sample_evidence):
     v_res = verify_answer(conservative_text, sample_evidence)
     assert v_res.passed is True
     assert len(v_res.flagged_claims) == 0
+
+
+def test_hybrid_verifier_never_lets_openai_override_deterministic_failure(sample_evidence, monkeypatch):
+    monkeypatch.setattr(
+        "backend.controller.verifier.generate_agent_with_tool_call",
+        lambda **kwargs: {"passed": True, "flagged_claims": [], "notes": []},
+    )
+    result = verify_answer_hybrid("The measured area is 999 ha.", sample_evidence)
+    assert result.passed is False
+    assert any("999" in value for value in result.flagged_claims)
+
+
+def test_hybrid_verifier_can_add_semantic_failure(sample_evidence, monkeypatch):
+    monkeypatch.setattr(
+        "backend.controller.verifier.generate_agent_with_tool_call",
+        lambda **kwargs: {
+            "passed": False,
+            "flagged_claims": ["Causality is not supported by the evidence."],
+            "notes": ["Deterministic measurements do not establish causality."],
+        },
+    )
+    result = verify_answer_hybrid(
+        "The flood caused the measured 14.5 ha water area.",
+        sample_evidence,
+    )
+    assert result.passed is False
+    assert "Causality" in result.flagged_claims[0]

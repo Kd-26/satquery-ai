@@ -1,5 +1,19 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional, Dict, Any
+
+
+class VisualObservation(BaseModel):
+    """Qualitative EO evidence from Qwen, never a numeric authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["scene", "temporal", "crossmodal"]
+    statement: str
+    source_images: List[str]
+    adapter: Optional[str] = None
+    model: str
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    limitations: List[str] = Field(default_factory=list)
 
 class Claim(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -30,3 +44,4 @@ class EvidencePackage(BaseModel):
     overlays_ref: Optional[Dict[str, str]] = None
     limitations: List[str]
     model_versions: Dict[str, str]
+    observations: List[VisualObservation] = Field(default_factory=list)

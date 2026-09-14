@@ -32,8 +32,10 @@ from backend.controller.preprocessing import IncompatibleInputError
 from backend.controller.evidence import build_evidence_package
 from backend.controller.answerer import generate_answer
 from backend.controller.answerer import generate_direct_answer
-from backend.controller.verifier import verify_answer, get_conservative_fallback
-from backend.controller.intent import route_query
+from backend.controller.verifier import verify_answer_hybrid, get_conservative_fallback
+from backend.controller.intent import classify_intent, route_query
+from backend.controller.visual_specialist import collect_visual_evidence, VisualSpecialistError
+from backend.services.provider_service import ProviderError
 from backend.controller.scientific_tool_executor import (
     ScientificToolError,
     ensure_preview,
@@ -66,6 +68,10 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "routing", 18)
+        # OpenAI supplies structured semantic intent hints. The deterministic
+        # router remains the final policy gate so no model can silently unlock
+        # quantitative or segmentation work.
+        intent_hints = classify_intent(query, profiles)
         route = route_query(query, profiles)
 
         if route.mode != "general_knowledge" and not image_ids:
@@ -82,6 +88,7 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 "claims": [],
                 "limitations": ["This is a general-knowledge response; no raster analysis was performed."],
                 "route": route.model_dump(),
+                "intent": intent_hints,
                 "traces": [{"step": "direct_vlm", "status": "success"}],
             })
             return
@@ -93,11 +100,22 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
             previews = [ensure_preview(image_id) for image_id in image_ids]
             metadata = json.dumps([p.model_dump(mode="json") for p in profiles], indent=2)
             run_state.update_stage(run_id, "visual_interpretation", 80)
-            answer_obj = generate_direct_answer(
-                query, images=previews, metadata=metadata,
-                external_image_consent=external_image_consent,
-            )
-            visual_verification = verify_answer(answer_obj["plain_language"], _empty_evidence(run_id))
+            try:
+                observations = collect_visual_evidence(
+                    run_id=run_id,
+                    workflow="single",
+                    query=f"{query}\n\nVERIFIED IMAGE METADATA:\n{metadata}",
+                    image_ids=image_ids,
+                    previews=previews,
+                    external_image_consent=external_image_consent,
+                )
+            except (ProviderError, VisualSpecialistError) as exc:
+                run_state.mark_failed(run_id, f"Visual interpretation failed: {exc}")
+                return
+            answer_text = observations[0].statement
+            answer_obj = {"technical": answer_text, "plain_language": answer_text}
+            visual_evidence = _empty_evidence(run_id).model_copy(update={"observations": observations})
+            visual_verification = verify_answer_hybrid(answer_text, visual_evidence)
             limitations = [
                 "This is qualitative visual interpretation, not segmentation or a physical measurement."
             ]
@@ -114,6 +132,9 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 "claims": [],
                 "limitations": limitations,
                 "route": route.model_dump(),
+                "intent": intent_hints,
+                "observations": [value.model_dump() for value in observations],
+                "verification": {"plain_language": visual_verification.model_dump()},
                 "traces": [{"step": "vision_vlm_interpret", "status": "success", "images_supplied": len(previews)}],
             })
             return
@@ -127,6 +148,15 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
             except ScientificToolError as e:
                 run_state.mark_failed(run_id, f"Scientific tool execution failed: {e}")
                 return
+            if route.mode == "temporal_analysis":
+                _attach_visual_evidence(
+                    workflow_result=workflow_result,
+                    run_id=run_id,
+                    workflow="temporal",
+                    query=query,
+                    image_ids=image_ids,
+                    external_image_consent=external_image_consent,
+                )
             scientific_plan = ExecutionPlan(
                 workflow="temporal" if route.mode == "temporal_analysis" else "single",
                 images=image_ids,
@@ -147,8 +177,8 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
             run_state.update_stage(run_id, "vlm_synthesis", 86)
             answer_obj = generate_answer(query, evidence, scientific_plan)
             run_state.update_stage(run_id, "verifying", 96)
-            technical_check = verify_answer(answer_obj["technical"], evidence)
-            plain_check = verify_answer(answer_obj["plain_language"], evidence)
+            technical_check = verify_answer_hybrid(answer_obj["technical"], evidence)
+            plain_check = verify_answer_hybrid(answer_obj["plain_language"], evidence)
             limitations = list(evidence.limitations)
             if not technical_check.passed or not plain_check.passed:
                 fallback_text = get_conservative_fallback(evidence)
@@ -160,6 +190,12 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 "claims": [c.model_dump() for c in evidence.claims],
                 "limitations": limitations,
                 "route": route.model_dump(),
+                "intent": intent_hints,
+                "observations": [value.model_dump() for value in evidence.observations],
+                "verification": {
+                    "technical": technical_check.model_dump(),
+                    "plain_language": plain_check.model_dump(),
+                },
                 "tool_outputs": workflow_result["tool_outputs"],
                 "tool_graph": workflow_result["tool_graph"],
                 "traces": workflow_result["traces"],
@@ -169,7 +205,7 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "planning", 25)
         try:
-            execution_plan = planner_plan(query, image_ids, profiles)
+            execution_plan = planner_plan(query, image_ids, profiles, intent_hints)
         except PlannerParseError as e:
             run_state.mark_failed(run_id, f"Planning failed: {e}")
             return
@@ -182,7 +218,12 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
             run_state.update_stage(run_id, "replanning", 45)
             try:
                 execution_plan = planner_replan(
-                    query, image_ids, profiles, execution_plan, validation.errors
+                    query,
+                    image_ids,
+                    profiles,
+                    execution_plan,
+                    validation.errors,
+                    intent_hints,
                 )
             except PlannerParseError as e:
                 run_state.mark_failed(run_id, f"Replanning failed: {e}")
@@ -236,6 +277,14 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
         workflow_result["tool_graph"] = segmentation_graph.model_dump(mode="json")
         workflow_result.setdefault("tool_outputs", {})["tool_results"] = segmentation_results
         workflow_result.setdefault("limitations", []).extend(optional_limitations)
+        _attach_visual_evidence(
+            workflow_result=workflow_result,
+            run_id=run_id,
+            workflow=execution_plan.workflow,
+            query=query,
+            image_ids=image_ids,
+            external_image_consent=external_image_consent,
+        )
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "building_evidence", 75)
@@ -251,8 +300,8 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "verifying", 97)
-        technical_verification = verify_answer(answer_obj["technical"], evidence)
-        plain_verification = verify_answer(answer_obj["plain_language"], evidence)
+        technical_verification = verify_answer_hybrid(answer_obj["technical"], evidence)
+        plain_verification = verify_answer_hybrid(answer_obj["plain_language"], evidence)
 
         limitations = list(evidence.limitations)
         if not technical_verification.passed or not plain_verification.passed:
@@ -273,6 +322,12 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
             "limitations": limitations,
             "traces": workflow_result.get("traces", []),
             "route": route.model_dump(),
+            "intent": intent_hints,
+            "observations": [value.model_dump() for value in evidence.observations],
+            "verification": {
+                "technical": technical_verification.model_dump(),
+                "plain_language": plain_verification.model_dump(),
+            },
             "tool_outputs": workflow_result.get("tool_outputs", {}),
             "tool_graph": workflow_result.get("tool_graph"),
         }
@@ -295,3 +350,43 @@ def _empty_evidence(run_id: str):
         limitations=[],
         model_versions={},
     )
+
+
+def _attach_visual_evidence(
+    *,
+    workflow_result: dict,
+    run_id: str,
+    workflow: str,
+    query: str,
+    image_ids: list[str],
+    external_image_consent: bool,
+) -> None:
+    """Best-effort Qwen enrichment for otherwise valid scientific output."""
+    limitations = workflow_result.setdefault("limitations", [])
+    if not external_image_consent:
+        limitations.append(
+            "Qwen visual observation was skipped because external image consent was not granted."
+        )
+        return
+    try:
+        previews = [ensure_preview(image_id) for image_id in image_ids]
+        observations = collect_visual_evidence(
+            run_id=run_id,
+            workflow=workflow,
+            query=query,
+            image_ids=image_ids,
+            previews=previews,
+            external_image_consent=True,
+        )
+    except (ProviderError, VisualSpecialistError) as exc:
+        limitations.append(f"Qwen visual observation was unavailable: {exc}")
+        return
+    workflow_result.setdefault("observations", []).extend(
+        observation.model_dump() for observation in observations
+    )
+    workflow_result.setdefault("traces", []).append({
+        "step": "qwen_visual_specialist",
+        "workflow": workflow,
+        "status": "success",
+        "images_supplied": len(previews),
+    })

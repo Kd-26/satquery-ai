@@ -1,6 +1,6 @@
 import uuid
 from typing import Dict, Any
-from backend.schemas.evidence_package import EvidencePackage, Claim
+from backend.schemas.evidence_package import EvidencePackage, Claim, VisualObservation
 from backend.schemas.execution_plan import ExecutionPlan
 from backend.schemas.validation_result import ValidationResult
 from backend.registry.registry_loader import get_by_id
@@ -11,6 +11,10 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
     overlays_ref = {}
     limitations = list(workflow_result.get("limitations", []))
     model_versions = {}
+    observations = [
+        value if isinstance(value, VisualObservation) else VisualObservation.model_validate(value)
+        for value in workflow_result.get("observations", [])
+    ]
     
     # Populate model_versions from the registry entries actually used
     for model_id in plan.required_models:
@@ -152,5 +156,6 @@ def build_evidence_package(run_id: str, workflow_result: Dict[str, Any], plan: E
         masks_ref=masks_ref,
         overlays_ref=overlays_ref,
         limitations=limitations,
-        model_versions=model_versions
+        model_versions=model_versions,
+        observations=observations,
     )

@@ -52,7 +52,9 @@ class OpenAIProviderFacade:
         )
 
     def health(self) -> dict:
-        return self._impl.health()
+        result = self._impl.health()
+        result["roles"] = ["intent", "planning", "replanning", "semantic_verification"]
+        return result
 
 
 @dataclass
@@ -61,28 +63,23 @@ class ModalProviderFacade:
     external: bool = True
     _impl: QwenService = QwenService()
 
-    def generate(self, prompt: str, images=None, system=None, max_tokens=None, **kwargs) -> str:
-        return self._impl.generate(prompt, images=images, system=system, max_tokens=max_tokens or 2048, **kwargs)
+    def generate(self, prompt: str, images=None, system=None, max_tokens=None, adapter=None, **kwargs) -> str:
+        return self._impl.generate(
+            prompt,
+            images=images,
+            system=system,
+            max_tokens=max_tokens or 2048,
+            adapter_id=adapter,
+            **kwargs,
+        )
 
     def generate_with_tool_call(self, **kwargs) -> dict:
-        # If tool calling is requested directly on Modal, parse or delegate to OpenAI
-        tool_name = kwargs["tool_name"]
-        schema = kwargs["tool_schema"]
-        prompt = kwargs["prompt"]
-        system = kwargs.get("system", "")
-        # Construct explicit JSON formatting instructions for VLM
-        full_prompt = (
-            f"{system}\n\n{prompt}\n\n"
-            f"You MUST call the tool '{tool_name}' and respond ONLY with a valid JSON object adhering to this schema:\n"
-            f"{schema}"
-        )
-        raw_text = self._impl.generate(full_prompt)
-        import re, json
-        cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw_text).strip()
-        return json.loads(cleaned)
+        raise ProviderError("Modal Qwen is not permitted to perform agent planning or tool calls.")
 
     def health(self) -> dict:
-        return self._impl.health()
+        result = self._impl.health()
+        result["roles"] = ["visual_observation", "visual_comparison", "answer_synthesis"]
+        return result
 
 
 @dataclass
@@ -186,13 +183,87 @@ def generate(*, images=None, external_image_consent: bool = False, max_tokens=No
 
 
 def generate_with_tool_call(**kwargs) -> dict:
-    errors = []
-    for provider in _ordered_providers():
-        try:
-            return provider.generate_with_tool_call(**kwargs)
-        except Exception as exc:
-            errors.append(f"{provider.name}: {type(exc).__name__}: {exc}")
-    raise ProviderError("All configured structured-output providers failed: " + "; ".join(errors))
+    """Backward-compatible agent tool-call entry point; OpenAI-only by policy."""
+    try:
+        return _PROVIDERS["openai"].generate_with_tool_call(**kwargs)
+    except Exception as exc:
+        raise ProviderError(f"OpenAI structured agent call failed: {type(exc).__name__}: {exc}") from exc
+
+
+# Role-bound entry points. Controllers should use these instead of the generic
+# fallback functions above so a planner can never silently become a 9B VLM and
+# an EO visual request can never silently become a frontier-model request.
+def generate_agent_text(*, prompt: str, system: Optional[str] = None, max_tokens: Optional[int] = None) -> str:
+    try:
+        return _PROVIDERS["openai"].generate(
+            prompt=prompt,
+            system=system,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        raise ProviderError(f"OpenAI agent call failed: {type(exc).__name__}: {exc}") from exc
+
+
+def generate_agent_with_tool_call(**kwargs) -> dict:
+    try:
+        return _PROVIDERS["openai"].generate_with_tool_call(**kwargs)
+    except Exception as exc:
+        raise ProviderError(f"OpenAI structured agent call failed: {type(exc).__name__}: {exc}") from exc
+
+
+def generate_domain_text(
+    *,
+    prompt: str,
+    system: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+    adapter: Optional[str] = None,
+) -> str:
+    try:
+        return _PROVIDERS["modal"].generate(
+            prompt=prompt,
+            system=system,
+            max_tokens=max_tokens,
+            adapter=adapter,
+            images=[],
+        )
+    except Exception as exc:
+        raise ProviderError(f"Modal Qwen synthesis failed: {type(exc).__name__}: {exc}") from exc
+
+
+def observe_visual(
+    *,
+    images: list[str],
+    prompt: str,
+    adapter_id: Optional[str] = None,
+    external_image_consent: bool = False,
+) -> dict:
+    if not external_image_consent:
+        raise ProviderError("External image consent is required for Modal visual observation.")
+    try:
+        return _PROVIDERS["modal"]._impl.observe(images, prompt, adapter_id=adapter_id)
+    except Exception as exc:
+        raise ProviderError(f"Modal Qwen observation failed: {type(exc).__name__}: {exc}") from exc
+
+
+def compare_visual(
+    *,
+    image_t1: str,
+    image_t2: str,
+    prompt: str,
+    adapter_id: Optional[str] = None,
+    external_image_consent: bool = False,
+) -> dict:
+    if not external_image_consent:
+        raise ProviderError("External image consent is required for Modal visual comparison.")
+    try:
+        return _PROVIDERS["modal"]._impl.compare(
+            image_t1,
+            image_t2,
+            prompt,
+            adapter_id=adapter_id,
+        )
+    except Exception as exc:
+        raise ProviderError(f"Modal Qwen comparison failed: {type(exc).__name__}: {exc}") from exc
 
 
 def provider_health() -> list[dict]:

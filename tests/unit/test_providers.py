@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from backend.services.providers.openai_provider import OpenAIProvider
-from backend.services.providers.qwen_service import QwenService
+from backend.services.providers.qwen_service import QwenService, QwenServiceError
 from backend.services.providers.segmentation_provider import LocalSegmentationProvider
 from backend.services.provider_service import provider_health, _ordered_providers
 
@@ -41,6 +41,7 @@ def test_openai_provider_structured_tool_call_mock():
         mock_client = MagicMock()
         mock_openai_cls.return_value = mock_client
         mock_tool_call = MagicMock()
+        mock_tool_call.function.name = "create_execution_plan"
         mock_tool_call.function.arguments = '{"workflow": "single", "target_classes": ["water"]}'
         mock_choice = MagicMock()
         mock_choice.message.tool_calls = [mock_tool_call]
@@ -49,6 +50,8 @@ def test_openai_provider_structured_tool_call_mock():
         schema = {"type": "object", "properties": {"workflow": {"type": "string"}}}
         res = provider.structured("Plan query", schema, "create_execution_plan")
         assert res == {"workflow": "single", "target_classes": ["water"]}
+        call = mock_client.chat.completions.create.call_args.kwargs
+        assert call["tools"][0]["function"]["strict"] is True
 
 
 def test_qwen_service_health():
@@ -58,15 +61,52 @@ def test_qwen_service_health():
     assert health["configured"] is True
 
 
-def test_qwen_service_observe_and_compare_mock():
-    service = QwenService(endpoint="")  # offline / mock mode
-    obs = service.observe(["http://example.com/img.png"], "Observe water coverage")
-    assert "statement" in obs
-    assert obs["confidence"] >= 0.8
+def test_qwen_service_fails_loud_when_unconfigured():
+    service = QwenService(endpoint="")
+    with pytest.raises(QwenServiceError, match="MODAL_VLM_API_BASE"):
+        service.observe(["http://example.com/img.png"], "Observe water coverage")
 
-    comp = service.compare("http://example.com/t1.png", "http://example.com/t2.png", "Compare flood extent")
-    assert "statement" in comp
-    assert comp["adapter"] == "lora_temporal_v1"
+
+def test_qwen_service_observe_and_compare_contract():
+    service = QwenService(endpoint="https://modal-app.modal.run/v1")
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "model": "qwen-vlm",
+        "choices": [{"message": {"content": "Visible water-like dark regions are present."}}],
+    }
+    response.elapsed.total_seconds.return_value = 0.5
+    with patch("backend.services.providers.qwen_service.requests.post", return_value=response) as post:
+        obs = service.observe(["http://example.com/img.png"], "Observe water coverage")
+        assert obs["statement"].startswith("Visible water-like")
+        assert post.call_args.kwargs["json"]["adapter_id"] == "lora_optical_v1"
+
+        comp = service.compare(
+            "http://example.com/t1.png",
+            "http://example.com/t2.png",
+            "Compare flood extent",
+        )
+        assert comp["adapter"] == "lora_temporal_v1"
+        assert post.call_args.args[0].endswith("/v1/chat/completions")
+
+
+def test_qwen_service_retries_modal_server_cold_start(monkeypatch):
+    service = QwenService(endpoint="https://modal-app.modal.direct/v1")
+    unavailable = MagicMock(status_code=503)
+    ready = MagicMock(status_code=200)
+    ready.raise_for_status.return_value = None
+    ready.json.return_value = {
+        "choices": [{"message": {"content": "Server is ready."}}],
+    }
+    ready.elapsed.total_seconds.return_value = 0.2
+    monkeypatch.setattr("backend.services.providers.qwen_service.time.sleep", lambda _: None)
+    with patch(
+        "backend.services.providers.qwen_service.requests.post",
+        side_effect=[unavailable, ready],
+    ) as post:
+        result = service.generate("health check")
+    assert result == "Server is ready."
+    assert post.call_count == 2
 
 
 def test_segmentation_provider():
