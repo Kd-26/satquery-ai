@@ -1,9 +1,9 @@
 """
-Provider-neutral LLM/VLM facade supporting:
+Role-bound LLM/VLM facade supporting:
   • openai  — OpenAI Agent Brain (structured planning, intent, verifier)
   • modal   — Fine-Tuned VLM on Modal (satellite visual specialist & answerer)
-  • nvidia  — NVIDIA NIM fallback
-  • local   — Self-hosted local endpoint
+Final answer generation is deliberately pinned to the deployed fine-tuned
+Modal Qwen service. Agent-only planning and verification remain OpenAI calls.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from backend.core.config import settings
 from backend.services import vlm_service as nvidia
 from backend.services.providers.openai_provider import OpenAIProvider
 from backend.services.providers.qwen_service import QwenService
+from backend.services.providers.segmentation_provider import LocalSegmentationProvider
 
 logger = logging.getLogger(__name__)
 
@@ -168,18 +169,23 @@ def _ordered_providers() -> list[Provider]:
 
 
 def generate(*, images=None, external_image_consent: bool = False, max_tokens=None, **kwargs) -> str:
+    """Generate with deployed Qwen only; never silently switch answer models."""
     if max_tokens and max_tokens > int(os.getenv("VLM_REQUEST_TOKEN_LIMIT", "8192")):
         raise ProviderError("Requested token budget exceeds VLM_REQUEST_TOKEN_LIMIT")
-    errors = []
-    for provider in _ordered_providers():
-        if images and provider.external and not external_image_consent:
-            errors.append(f"{provider.name}: external image consent not granted")
-            continue
-        try:
-            return provider.generate(images=images, max_tokens=max_tokens, **kwargs)
-        except Exception as exc:
-            errors.append(f"{provider.name}: {type(exc).__name__}: {exc}")
-    raise ProviderError("All configured VLM providers failed: " + "; ".join(errors))
+    if images and not external_image_consent:
+        raise ProviderError("modal: external image consent not granted")
+    adapter = kwargs.pop("adapter", None) or settings.lora_general
+    try:
+        return _PROVIDERS["modal"].generate(
+            images=images,
+            max_tokens=max_tokens,
+            adapter=adapter,
+            **kwargs,
+        )
+    except Exception as exc:
+        raise ProviderError(
+            f"Deployed fine-tuned Qwen call failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def generate_with_tool_call(**kwargs) -> dict:
@@ -218,6 +224,10 @@ def generate_domain_text(
     max_tokens: Optional[int] = None,
     adapter: Optional[str] = None,
 ) -> str:
+    if not adapter:
+        raise ProviderError(
+            "A fine-tuned Qwen adapter is required for answer generation; base-model fallback is disabled."
+        )
     try:
         return _PROVIDERS["modal"].generate(
             prompt=prompt,
@@ -267,4 +277,7 @@ def compare_visual(
 
 
 def provider_health() -> list[dict]:
-    return [provider.health() for provider in _ordered_providers()]
+    return [
+        *[provider.health() for provider in _ordered_providers()],
+        LocalSegmentationProvider().health(),
+    ]

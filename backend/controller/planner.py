@@ -38,6 +38,86 @@ class PlannerParseError(Exception):
     """Raised when the planner fails to produce a valid ExecutionPlan after all retries."""
 
 
+_CLASS_ALIASES = {
+    "urban": "built_up",
+    "building": "built_up",
+    "buildings": "built_up",
+    "forest": "vegetation",
+    "crop": "cropland",
+    "agriculture": "cropland",
+    "flood": "water",
+}
+
+
+def enforce_segmentation_contract(
+    plan: ExecutionPlan,
+    input_profiles: list[InputProfile],
+    intent_hints: Optional[dict[str, Any]] = None,
+) -> ExecutionPlan:
+    """Deterministically bind a segmentation plan to deployed registry models.
+
+    The LLM may propose the workflow and targets, but it cannot opt out of the
+    specialist model after the deterministic router has classified the request
+    as segmentation. This also removes invented/non-segmentation model IDs.
+    """
+    if not input_profiles:
+        raise PlannerParseError("Segmentation requires at least one image profile.")
+
+    sar_profiles = [p for p in input_profiles if (p.sensor_type or "").lower() == "sar"
+                    or (p.sensor_family or "").lower() in {"sentinel-1", "risat"}
+                    or any(b.upper() in {"VV", "VH"} for b in p.band_identities)]
+    optical_profiles = [p for p in input_profiles if p not in sar_profiles]
+
+    workflow = plan.workflow
+    hinted_workflow = (intent_hints or {}).get("workflow_hint")
+    if len(input_profiles) == 1:
+        workflow = "single"
+    elif sar_profiles and optical_profiles:
+        workflow = "crossmodal"
+    elif hinted_workflow == "temporal":
+        workflow = "temporal"
+    elif workflow == "crossmodal":
+        workflow = "temporal"
+
+    if workflow == "crossmodal":
+        required_models = ["SEG_RGB_v1", "SEG_SAR_VV_VH_v1"]
+    elif sar_profiles and (workflow == "temporal" or input_profiles[0] in sar_profiles):
+        required_models = ["SEG_SAR_VV_VH_v1"]
+    else:
+        required_models = ["SEG_RGB_v1"]
+
+    supported = None
+    for model_id in required_models:
+        model_classes = set(registry_loader.get_by_id(model_id).classes or [])
+        supported = model_classes if supported is None else supported & model_classes
+    supported = supported or set()
+
+    hinted = list((intent_hints or {}).get("target_classes_hint") or [])
+    proposed = list(plan.target_classes or [])
+    normalized_targets: list[str] = []
+    for value in [*hinted, *proposed]:
+        target = _CLASS_ALIASES.get(value.lower(), value.lower())
+        if target in supported and target not in normalized_targets:
+            normalized_targets.append(target)
+    if not normalized_targets:
+        raise PlannerParseError(
+            "No requested target class is supported by the deployed segmentation model(s): "
+            + ", ".join(required_models)
+        )
+
+    outputs = list(dict.fromkeys(["masks", *plan.requested_outputs]))
+    return plan.model_copy(update={
+        "workflow": workflow,
+        "required_models": required_models,
+        "target_classes": normalized_targets,
+        "requested_outputs": outputs,
+        # The answerer binds the adapter from the validated workflow. Do not
+        # accept a planner-selected adapter that could bypass that binding.
+        "final_adapter": None,
+        "fallback": None,
+    })
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool schema — mirrors ExecutionPlan exactly so the model is forced to match
 # ─────────────────────────────────────────────────────────────────────────────

@@ -148,12 +148,15 @@ class QwenService(VisualProvider):
         if not self.endpoint:
             raise QwenServiceError("MODAL_VLM_API_BASE is not configured.")
 
-        # Modal Servers return 503 while scaling from zero. The first request
-        # triggers startup, so retry only that status with bounded exponential
-        # backoff until the configured total cold-start budget is exhausted.
+        # Scaling from zero can surface as a connection drop, timeout, rate
+        # limit, or transient gateway/server response depending on which proxy
+        # layer receives the request. Retry all of those within one bounded
+        # cold-start budget; never switch to a different answer model.
         deadline = time.monotonic() + settings.modal_request_timeout_s
         delay_s = 1.0
         attempts = 0
+        retryable_statuses = {408, 425, 429, 500, 502, 503, 504}
+        last_error = "deployment unavailable"
         try:
             while True:
                 attempts += 1
@@ -167,36 +170,38 @@ class QwenService(VisualProvider):
                         self._completion_url(self.endpoint),
                         json=payload,
                         headers=headers,
-                        timeout=min(60.0, remaining_s),
+                        timeout=min(settings.modal_attempt_timeout_s, remaining_s),
                         allow_redirects=True,
                     )
-                except requests.ConnectionError:
-                    # Modal sometimes drops the TCP connection entirely while
-                    # scaling from zero before it starts returning 503.
+                except (requests.ConnectionError, requests.Timeout) as exc:
+                    last_error = type(exc).__name__
                     sleep_s = min(delay_s, max(0.0, deadline - time.monotonic()))
                     if sleep_s <= 0:
                         raise QwenServiceError(
-                            f"Modal VLM connection refused after {attempts} attempts."
+                            f"Fine-tuned Qwen was not ready after {attempts} attempts: {last_error}."
                         )
                     logger.info(
-                        "Modal Server refused connection (cold-start); retrying in %.1fs (attempt %d).",
+                        "Fine-tuned Qwen cold-start transport retry in %.1fs (attempt %d, %s).",
                         sleep_s,
                         attempts,
+                        last_error,
                     )
                     time.sleep(sleep_s)
                     delay_s = min(delay_s * 2.0, 10.0)
                     continue
-                if resp.status_code != 503:
+                if resp.status_code not in retryable_statuses:
                     break
+                last_error = f"HTTP {resp.status_code}"
                 sleep_s = min(delay_s, max(0.0, deadline - time.monotonic()))
                 if sleep_s <= 0:
                     raise QwenServiceError(
-                        f"Modal VLM remained unavailable after {attempts} attempts."
+                        f"Fine-tuned Qwen was not ready after {attempts} attempts: {last_error}."
                     )
                 logger.info(
-                    "Modal Server is scaling from zero; retrying in %.1fs (attempt %d).",
+                    "Fine-tuned Qwen cold-start HTTP retry in %.1fs (attempt %d, %s).",
                     sleep_s,
                     attempts,
+                    last_error,
                 )
                 time.sleep(sleep_s)
                 delay_s = min(delay_s * 2.0, 10.0)
@@ -242,6 +247,8 @@ class QwenService(VisualProvider):
             "model": data.get("model") or self.base_model,
             "confidence": confidence,
             "limitations": data.get("limitations", []),
+            "deployment_attempts": attempts,
+            "requested_model": self.base_model,
         }
 
     def observe(self, images: List[str], prompt: str, adapter_id: Optional[str] = None) -> Dict[str, Any]:

@@ -7,6 +7,7 @@ import zipfile
 import httpx
 import rasterio
 import numpy as np
+from pathlib import Path
 from typing import Dict, Any
 from urllib.parse import urlparse
 
@@ -22,79 +23,52 @@ class ExecutorError(Exception):
     pass
 
 
-def _scientific_raster_segmentation(tensor: np.ndarray, model_id: str, classes: list[str]) -> dict:
-    """
-    Deterministic scientific raster segmentation fallback when external microservice is offline.
-    Computes real raster classification masks directly from optical or SAR pixel data.
-    """
-    if tensor.ndim == 4:
-        batch_size, c, h, w = tensor.shape
-        data = tensor[0]
-    elif tensor.ndim == 3:
-        batch_size = 1
-        c, h, w = tensor.shape
-        data = tensor
-    else:
-        batch_size = 1
-        h, w = tensor.shape[-2:]
-        data = tensor.reshape(-1, h, w)
-        c = data.shape[0]
+def _post_segmentation_with_retry(url: str, **kwargs) -> httpx.Response:
+    """POST to a model deployment, tolerating bounded cold-start failures."""
+    retryable_statuses = {408, 425, 429, 500, 502, 503, 504}
+    retryable_errors = (
+        httpx.TimeoutException,
+        httpx.ConnectError,
+        httpx.RemoteProtocolError,
+        httpx.NetworkError,
+    )
+    deadline = time.monotonic() + settings.segmentation_request_timeout_s
+    delay_s = 1.0
+    attempts = 0
+    last_error = "deployment unavailable"
 
-    masks = {}
-    scores = {}
+    while True:
+        attempts += 1
+        remaining_s = deadline - time.monotonic()
+        if remaining_s <= 0:
+            raise ExecutorError(
+                f"Segmentation deployment was not ready after {attempts - 1} attempts: {last_error}."
+            )
+        kwargs["timeout"] = min(settings.segmentation_attempt_timeout_s, remaining_s)
+        for file_value in kwargs.get("files", {}).values():
+            if isinstance(file_value, tuple) and hasattr(file_value[1], "seek"):
+                file_value[1].seek(0)
+        try:
+            response = httpx.post(url, **kwargs)
+            if response.status_code not in retryable_statuses:
+                setattr(response, "satquery_attempts", attempts)
+                return response
+            last_error = f"HTTP {response.status_code}"
+        except retryable_errors as exc:
+            last_error = type(exc).__name__
 
-    classes = classes or ["water"]
-    for cls in classes:
-        cls_lower = cls.lower()
-        if cls_lower in ("water", "flood"):
-            if c >= 3:
-                r, g, b_ch = data[0].astype(np.float32), data[1].astype(np.float32), data[2].astype(np.float32)
-                denom = g + r + 1e-6
-                wi = (g - r) / denom
-                brightness = (r + g + b_ch) / 3.0
-                prob = 1.0 / (1.0 + np.exp(-(wi * 3.0 - (brightness - 0.5) * 2.0)))
-                prob = np.clip(prob, 0.0, 1.0)
-            elif c == 2:
-                vv = data[0].astype(np.float32)
-                prob = np.clip(1.0 - (vv / (np.nanpercentile(vv, 95) + 1e-6)), 0.0, 1.0)
-            else:
-                prob = np.full((h, w), 0.25, dtype=np.float32)
-            mask = (prob > 0.45).astype(np.uint8)
-
-        elif cls_lower in ("vegetation", "forest", "crop", "cropland"):
-            if c >= 3:
-                r, g = data[0].astype(np.float32), data[1].astype(np.float32)
-                denom = g + r + 1e-6
-                vi = (g - r) / denom
-                prob = np.clip(1.0 / (1.0 + np.exp(-vi * 4.0)), 0.0, 1.0)
-            else:
-                prob = np.full((h, w), 0.40, dtype=np.float32)
-            mask = (prob > 0.45).astype(np.uint8)
-
-        elif cls_lower in ("built_up", "urban", "building"):
-            if c == 2:
-                vv = data[0].astype(np.float32)
-                high_thresh = np.nanpercentile(vv, 80)
-                prob = np.clip(vv / (high_thresh + 1e-6), 0.0, 1.0)
-            else:
-                prob = np.full((h, w), 0.20, dtype=np.float32)
-            mask = (prob > 0.60).astype(np.uint8)
-
-        else:
-            prob = np.full((h, w), 0.20, dtype=np.float32)
-            mask = (prob > 0.50).astype(np.uint8)
-
-        if tensor.ndim == 4 and batch_size > 1:
-            masks[cls] = np.stack([mask] * batch_size, axis=0)
-            scores[cls] = np.stack([prob] * batch_size, axis=0)
-        elif tensor.ndim == 4:
-            masks[cls] = np.expand_dims(mask, 0)
-            scores[cls] = np.expand_dims(prob, 0)
-        else:
-            masks[cls] = mask
-            scores[cls] = prob
-
-    return {"masks": masks, "scores": scores}
+        remaining_s = deadline - time.monotonic()
+        sleep_s = min(delay_s, max(0.0, remaining_s))
+        if sleep_s <= 0:
+            raise ExecutorError(
+                f"Segmentation deployment was not ready after {attempts} attempts: {last_error}."
+            )
+        logger.warning(
+            "Segmentation deployment cold-start retry url=%s attempt=%d reason=%s wait=%.1fs",
+            url, attempts, last_error, sleep_s,
+        )
+        time.sleep(sleep_s)
+        delay_s = min(delay_s * 2.0, 10.0)
 
 
 def _run_model_inference(
@@ -107,8 +81,10 @@ def _run_model_inference(
     external_image_consent: bool = False,
 ) -> dict:
     """
-    Run model inference via real HTTP microservice (including Modal hosted service) if available,
-    or bridge via deterministic scientific raster segmentation.
+    Run inference only through the configured deployed segmentation service.
+
+    No heuristic or fabricated-mask fallback is permitted. If the deployment
+    cannot produce a valid response, the pipeline fails explicitly.
     """
     modal_base = settings.satquery_segmentation_base_url.rstrip("/") if settings.satquery_segmentation_base_url else ""
     target_endpoint = endpoint
@@ -118,13 +94,14 @@ def _run_model_inference(
 
     if modal_base:
         is_modal = True
+        api_base = modal_base if modal_base.endswith("/v1") else f"{modal_base}/v1"
         channel_count = tensor.shape[1] if tensor.ndim == 4 else (tensor.shape[0] if tensor.ndim == 3 else 1)
         if "sar" in model_id.lower():
-            target_endpoint = f"{modal_base}/v1/segment/sar"
+            target_endpoint = f"{api_base}/segment/sar"
         elif "multispectral" in model_id.lower() or channel_count > 3:
-            target_endpoint = f"{modal_base}/v1/segment/multispectral"
+            target_endpoint = f"{api_base}/segment/multispectral"
         else:
-            target_endpoint = f"{modal_base}/v1/segment/landcover"
+            target_endpoint = f"{api_base}/segment/landcover"
 
         if settings.satquery_modal_proxy_key and settings.satquery_modal_proxy_secret:
             headers["Modal-Key"] = settings.satquery_modal_proxy_key
@@ -133,10 +110,23 @@ def _run_model_inference(
         if settings.satquery_allow_unresolved_segmentation:
             params["allow_unresolved_metadata"] = "true"
 
-    if target_endpoint and target_endpoint.startswith("http"):
+    if not target_endpoint or not target_endpoint.startswith(("http://", "https://")):
+        raise ExecutorError(
+            f"No deployed endpoint is configured for segmentation model {model_id}."
+        )
+
+    if target_endpoint.startswith("http"):
         hostname = (urlparse(target_endpoint).hostname or "").lower()
         is_local = hostname in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
-        if not is_local and not external_image_consent:
+        try:
+            registry_managed = get_by_id(model_id).endpoint == target_endpoint
+        except Exception:
+            registry_managed = False
+        # SATQUERY_SEGMENTATION_BASE_URL denotes the application's managed
+        # scientific backend. Model endpoints that were startup-validated from
+        # the capability registry are also managed application infrastructure.
+        # Only ad-hoc third-party endpoints require separate upload consent.
+        if not is_local and not is_modal and not registry_managed and not external_image_consent:
             raise ExecutorError(
                 f"Model service {model_id} is external; explicit image-upload consent is required."
             )
@@ -150,19 +140,17 @@ def _run_model_inference(
                     model_id, image_id, target_endpoint
                 )
                 if is_modal:
-                    resp = httpx.post(
+                    resp = _post_segmentation_with_retry(
                         target_endpoint,
                         headers=headers,
                         params=params,
                         files={"file": (artifact_files[0].name, raster_file, "image/tiff")},
-                        timeout=180.0,
                     )
                 else:
-                    resp = httpx.post(
+                    resp = _post_segmentation_with_retry(
                         target_endpoint,
                         data={"model_id": model_id, "classes": json.dumps(classes), "image_id": image_id or ""},
                         files={"file": (artifact_files[0].name, raster_file, "application/octet-stream")},
-                        timeout=60.0,
                     )
 
             if resp.status_code == 200:
@@ -199,29 +187,61 @@ def _run_model_inference(
                         "Successfully received and parsed Modal segmentation for %s. Mask shape: %s",
                         model_id, seg_mask.shape
                     )
-                    return {"masks": masks, "scores": scores}
+                    return {
+                        "masks": masks,
+                        "scores": scores,
+                        "deployment": {
+                            "provider": "managed" if (is_modal or registry_managed) else ("local" if is_local else "external"),
+                            "endpoint": target_endpoint,
+                            "model_id": model_id,
+                            "attempts": getattr(resp, "satquery_attempts", 1),
+                        },
+                    }
 
                 data = resp.json()
                 if "masks" in data and "scores" in data:
-                    return {
+                    result = {
                         "masks": {key: np.asarray(value, dtype=np.uint8) for key, value in data["masks"].items()},
                         "scores": {key: np.asarray(value, dtype=np.float32) for key, value in data["scores"].items()},
+                        "deployment": {
+                            "provider": "managed" if (is_modal or registry_managed) else ("local" if is_local else "external"),
+                            "endpoint": target_endpoint,
+                            "model_id": model_id,
+                            "attempts": getattr(resp, "satquery_attempts", 1),
+                        },
                     }
+                    missing = [
+                        cls for cls in classes
+                        if cls not in result["masks"] or cls not in result["scores"]
+                    ]
+                    if missing:
+                        raise ExecutorError(
+                            f"Segmentation model {model_id} omitted requested classes: {missing}."
+                        )
+                    return result
 
-            logger.warning(
-                "Model service %s returned HTTP %s: %s; using scientific raster engine fallback.",
-                model_id, resp.status_code, resp.text[:200]
+            raise ExecutorError(
+                f"Segmentation model {model_id} returned HTTP {resp.status_code}: "
+                f"{resp.text[:300]}"
             )
+        except ExecutorError:
+            raise
         except Exception as e:
-            logger.warning(
-                "Model service %s at %s failed or unreachable (%s); using scientific raster engine fallback.",
-                model_id, target_endpoint, e
-            )
+            raise ExecutorError(
+                f"Deployed segmentation model {model_id} at {target_endpoint} failed: "
+                f"{type(e).__name__}: {e}"
+            ) from e
 
-    return _scientific_raster_segmentation(tensor, model_id, classes)
+    raise ExecutorError(f"Segmentation model {model_id} did not execute.")
 
 
-def _vlm_class_scoring(image_id: str | None, classes: list[str], model_id: str, tensor_shape: tuple) -> dict:
+def _vlm_class_scoring(
+    image_id: str | None,
+    classes: list[str],
+    model_id: str,
+    tensor_shape: tuple,
+) -> dict:
+    """Explicitly prohibit an LLM/VLM from substituting for segmentation."""
     raise ExecutorError(
         f"Segmentation service {model_id} is unavailable. An LLM cannot be used "
         "to synthesize scientific masks; configure a real model endpoint."
@@ -231,8 +251,6 @@ def _vlm_class_scoring(image_id: str | None, classes: list[str], model_id: str, 
 from backend.scientific_tools.quality import compute_valid_mask, detect_saturation, approximate_optical_cloud_shadow_mask, decode_quality_band
 from backend.controller.ingestion import resolve_metadata
 from backend.scientific_tools.raster_io import read_bands
-from pathlib import Path
-
 def _stitch_tiles(batch_tensor: np.ndarray, tile_transforms: list, dtype=np.float32) -> np.ndarray:
     if batch_tensor.ndim == 2:
         return batch_tensor.astype(dtype)
@@ -322,12 +340,9 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult,
             pass
 
     if not active_models:
-        fallback_model = "SEG_SAR_VV_VH_v1" if is_sar_img else "SEG_RGB_v1"
-        logger.info(
-            "No matching model in plan for image %s (is_sar=%s); defaulting to %s",
-            image_id, is_sar_img, fallback_model
+        raise ExecutorError(
+            f"Validated plan has no compatible deployed segmentation model for image {image_id}."
         )
-        active_models = [fallback_model]
 
     for model_id in active_models:
         start_t = time.time()
@@ -343,7 +358,11 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult,
         entry = get_by_id(model_id)
         endpoint = entry.endpoint
         contract = entry.input_contract
-        classes = entry.classes
+        classes = [value for value in plan.target_classes if value in (entry.classes or [])]
+        if not classes:
+            raise ExecutorError(
+                f"Model {model_id} supports none of the requested target classes {plan.target_classes}."
+            )
         
         try:
             result = _run_model_inference(
@@ -363,7 +382,8 @@ def run_single_image_workflow(plan: ExecutionPlan, validation: ValidationResult,
             "step": "model_inference",
             "model_id": model_id,
             "duration_s": dur,
-            "status": "success"
+            "status": "success",
+            "deployment": result["deployment"],
         })
         
         for cls, mask in result["masks"].items():

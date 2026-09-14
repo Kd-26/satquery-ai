@@ -105,7 +105,8 @@ def route_query(query: str, input_profiles: List[InputProfile]) -> RoutingDecisi
         )
 
     segmentation_terms = (
-        "segment", "delineate", "boundary", "boundaries", "outline", "polygon",
+        "segment", "segmentation", "mask", "delineate", "boundary", "boundaries",
+        "outline", "polygon", "classify pixels", "land-cover map", "land cover map",
         "locate", "where are", "map all", "count objects", "detect objects",
     )
     area_terms = ("area", "hectare", "square kilomet", "square meter", "extent", "coverage", "percentage", "proportion", "how much")
@@ -249,9 +250,6 @@ def classify_intent(query: str, input_profiles: List[InputProfile]) -> Dict[str,
         classes.append("vegetation")
     if any(w in lower_query for w in ("urban", "city", "building", "settlement")):
         classes.append("urban")
-    if not classes:
-        classes = ["water"]  # default standard
-
     suggested_tools = []
     if "ndwi" in lower_query or ("water" in classes and "index" in lower_query):
         suggested_tools.append("compute_spectral_index:NDWI")

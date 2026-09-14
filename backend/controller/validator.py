@@ -56,6 +56,13 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
     confidence_caps = {}
     RESOLUTION_FACTOR = 5.0
 
+    # Any mask-producing route must name at least one real registered
+    # segmentation model. Execution is never allowed to fabricate or infer a
+    # local substitute when the deployed specialist is unavailable.
+    if "masks" in plan.requested_outputs and not plan.required_models:
+        approved = False
+        errors.append("Mask output requires at least one registered segmentation model.")
+
     # 1. Workflow-level integrity checks
     if plan.workflow == "single":
         if len(profiles) < 1:
@@ -130,6 +137,23 @@ def validate_plan(plan: ExecutionPlan, profiles: list[InputProfile]) -> Validati
             approved = False
             errors.append(f"Model {model_id} not found in registry.")
             continue
+
+        if "masks" in plan.requested_outputs and model.type != "segmentation":
+            approved = False
+            errors.append(
+                f"Model {model_id} cannot produce masks (registry type={model.type}); "
+                "a segmentation model is required."
+            )
+
+        unsupported_classes = [
+            value for value in plan.target_classes
+            if model.classes is not None and value not in model.classes
+        ]
+        if unsupported_classes:
+            approved = False
+            errors.append(
+                f"Model {model_id} does not support target classes {unsupported_classes}."
+            )
 
         target_profiles = _get_target_profiles(plan.workflow, getattr(model, "modality", ""), profiles)
         if not target_profiles and plan.workflow == "crossmodal":

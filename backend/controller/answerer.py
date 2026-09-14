@@ -22,8 +22,6 @@ from backend.schemas.evidence_package import EvidencePackage
 from backend.schemas.execution_plan import ExecutionPlan
 from backend.core.config import settings
 from backend.services.provider_service import (
-    ProviderError,
-    generate_agent_text,
     generate_domain_text,
     observe_visual,
 )
@@ -121,9 +119,8 @@ def generate_answer(
     Returns:
         {"technical": str, "plain_language": str}
 
-    On VLM failure, returns conservative fallback text so the pipeline
-    continues and the verifier can still run (it will flag the fallback as
-    having no invented numbers, which passes cleanly).
+    Failure is propagated. Returning a locally generated narrative or switching
+    providers would violate the deployed fine-tuned-Qwen-only contract.
     """
     evidence_text = _serialise_evidence(evidence)
     adapter = {
@@ -143,17 +140,13 @@ def generate_answer(
         "describe missing context. Output only evidence-backed measurement bullets and limitation bullets."
     )
 
-    try:
-        technical_answer = generate_domain_text(
-            prompt=technical_prompt,
-            system=_TECHNICAL_SYSTEM,
-            adapter=adapter,
-            max_tokens=512,
-        )
-        logger.info("Technical answer generated for run %s (len=%d)", evidence.run_id, len(technical_answer))
-    except ProviderError as e:
-        logger.error("VLM failed for technical answer (run %s): %s", evidence.run_id, e)
-        technical_answer = _conservative_text_answer(query, evidence)
+    technical_answer = generate_domain_text(
+        prompt=technical_prompt,
+        system=_TECHNICAL_SYSTEM,
+        adapter=adapter,
+        max_tokens=512,
+    )
+    logger.info("Technical answer generated for run %s (len=%d)", evidence.run_id, len(technical_answer))
 
     # ── Plain-language answer ────────────────────────────────────────────────
     plain_prompt = (
@@ -166,17 +159,13 @@ def generate_answer(
         "Keep it under 3 short paragraphs."
     )
 
-    try:
-        plain_answer = generate_domain_text(
-            prompt=plain_prompt,
-            system=_PLAIN_SYSTEM,
-            adapter=adapter,
-            max_tokens=512,
-        )
-        logger.info("Plain answer generated for run %s (len=%d)", evidence.run_id, len(plain_answer))
-    except ProviderError as e:
-        logger.error("VLM failed for plain answer (run %s): %s", evidence.run_id, e)
-        plain_answer = _conservative_text_answer(query, evidence)
+    plain_answer = generate_domain_text(
+        prompt=plain_prompt,
+        system=_PLAIN_SYSTEM,
+        adapter=adapter,
+        max_tokens=512,
+    )
+    logger.info("Plain answer generated for run %s (len=%d)", evidence.run_id, len(plain_answer))
 
     return {
         "technical":     technical_answer,
@@ -185,7 +174,7 @@ def generate_answer(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Conservative fallback — used when the VLM call itself fails (not hallucination)
+# Evidence-only fallback — used only after answer verification rejects Qwen output
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _conservative_text_answer(query: str, evidence: EvidencePackage) -> str:
@@ -237,5 +226,10 @@ def generate_direct_answer(query: str, images: list[str] | None = None, metadata
         )
         text = str(result["statement"])
     else:
-        text = generate_agent_text(prompt=prompt, system=system, max_tokens=700)
+        text = generate_domain_text(
+            prompt=prompt,
+            system=system,
+            adapter=settings.lora_general,
+            max_tokens=700,
+        )
     return {"technical": text, "plain_language": text}

@@ -21,7 +21,12 @@ import numpy as np
 
 from backend.controller import run_state
 from backend.controller.ingestion import resolve_metadata
-from backend.controller.planner import plan as planner_plan, replan as planner_replan, PlannerParseError
+from backend.controller.planner import (
+    plan as planner_plan,
+    replan as planner_replan,
+    enforce_segmentation_contract,
+    PlannerParseError,
+)
 from backend.controller.validator import validate_plan
 from backend.controller.executor import (
     run_single_image_workflow,
@@ -37,6 +42,7 @@ from backend.controller.verifier import verify_answer_hybrid, get_conservative_f
 from backend.controller.intent import classify_intent, route_query
 from backend.controller.visual_specialist import collect_visual_evidence, VisualSpecialistError
 from backend.services.provider_service import ProviderError
+from backend.core.config import settings
 from backend.controller.scientific_tool_executor import (
     ScientificToolError,
     ensure_preview,
@@ -82,7 +88,13 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
         # Conversational questions do not need a raster plan or scientific tools.
         if route.mode == "general_knowledge":
             run_state.update_stage(run_id, "vlm_synthesis", 80)
-            answer_obj = generate_direct_answer(query)
+            try:
+                answer_obj = generate_direct_answer(query)
+            except ProviderError as exc:
+                run_state.mark_failed(
+                    run_id, f"Fine-tuned Qwen answer synthesis failed: {exc}"
+                )
+                return
             run_state.mark_done(run_id, {
                 "answer": answer_obj["plain_language"],
                 "answer_obj": answer_obj,
@@ -91,7 +103,12 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 "limitations": ["This is a general-knowledge response; no raster analysis was performed."],
                 "route": route.model_dump(),
                 "intent": intent_hints,
-                "traces": [{"step": "direct_vlm", "status": "success"}],
+                "traces": [{
+                    "step": "qwen_answer_synthesis",
+                    "status": "success",
+                    "model_id": settings.modal_vlm_model_id,
+                    "adapter": settings.lora_general,
+                }],
             })
             return
 
@@ -125,6 +142,10 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 safe = (
                     "The visual response included unsupported quantitative details and was withheld. "
                     "Run an appropriate scientific measurement tool for quantitative results."
+                )
+                answer_obj = {"technical": safe, "plain_language": safe}
+                limitations.append(
+                    "Fine-tuned Qwen visual output failed evidence verification and was withheld."
                 )
             obs_confs = [o.confidence for o in observations if o.confidence is not None]
             overall_conf = float(np.mean(obs_confs)) if obs_confs else 0.80
@@ -178,7 +199,13 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 workflow_result.get("tool_graph"), workflow_result.get("traces"),
             )
             run_state.update_stage(run_id, "vlm_synthesis", 86)
-            answer_obj = generate_answer(query, evidence, scientific_plan)
+            try:
+                answer_obj = generate_answer(query, evidence, scientific_plan)
+            except ProviderError as exc:
+                run_state.mark_failed(
+                    run_id, f"Fine-tuned Qwen answer synthesis failed: {exc}"
+                )
+                return
             run_state.update_stage(run_id, "verifying", 96)
             technical_check = verify_answer_hybrid(answer_obj["technical"], evidence)
             plain_check = verify_answer_hybrid(answer_obj["plain_language"], evidence)
@@ -205,7 +232,15 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 },
                 "tool_outputs": workflow_result["tool_outputs"],
                 "tool_graph": workflow_result["tool_graph"],
-                "traces": workflow_result["traces"],
+                "traces": [
+                    *workflow_result["traces"],
+                    {
+                        "step": "qwen_answer_synthesis",
+                        "status": "success",
+                        "model_id": settings.modal_vlm_model_id,
+                        "adapter": settings.lora_temporal if scientific_plan.workflow == "temporal" else settings.lora_general,
+                    },
+                ],
             })
             return
 
@@ -213,6 +248,9 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
         run_state.update_stage(run_id, "planning", 25)
         try:
             execution_plan = planner_plan(query, image_ids, profiles, intent_hints)
+            execution_plan = enforce_segmentation_contract(
+                execution_plan, profiles, intent_hints
+            )
         except PlannerParseError as e:
             run_state.mark_failed(run_id, f"Planning failed: {e}")
             return
@@ -231,6 +269,9 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                     execution_plan,
                     validation.errors,
                     intent_hints,
+                )
+                execution_plan = enforce_segmentation_contract(
+                    execution_plan, profiles, intent_hints
                 )
             except PlannerParseError as e:
                 run_state.mark_failed(run_id, f"Replanning failed: {e}")
@@ -303,7 +344,13 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "vlm_synthesis", 90)
-        answer_obj = generate_answer(query, evidence, execution_plan)
+        try:
+            answer_obj = generate_answer(query, evidence, execution_plan)
+        except ProviderError as exc:
+            run_state.mark_failed(
+                run_id, f"Fine-tuned Qwen answer synthesis failed: {exc}"
+            )
+            return
 
         run_state.check_cancelled(run_id)
         run_state.update_stage(run_id, "verifying", 97)
@@ -331,7 +378,18 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
             "claims": claims_dump,
             "confidence": overall_conf,
             "limitations": limitations,
-            "traces": workflow_result.get("traces", []),
+            "traces": [
+                *workflow_result.get("traces", []),
+                {
+                    "step": "qwen_answer_synthesis",
+                    "status": "success",
+                    "model_id": settings.modal_vlm_model_id,
+                    "adapter": {
+                        "temporal": settings.lora_temporal,
+                        "crossmodal": settings.lora_crossmodal,
+                    }.get(execution_plan.workflow, settings.lora_general),
+                },
+            ],
             "route": route.model_dump(),
             "intent": intent_hints,
             "observations": [value.model_dump() for value in evidence.observations],

@@ -29,22 +29,32 @@ class LocalSegmentationProvider(SegmentationProvider):
         if prompt:
             payload["prompt"] = prompt
 
+        if not self.endpoint:
+            raise RuntimeError("A deployed segmentation endpoint is required.")
         try:
-            if self.endpoint and not self.endpoint.startswith("http://localhost:8001"):
-                resp = requests.post(f"{self.endpoint}/segment", json=payload, timeout=60)
-                resp.raise_for_status()
-                return resp.json()
-        except Exception as e:
-            logger.warning(f"Remote segmentation call failed: {e}. Falling back to internal engine.")
-
-        return {
-            "mask_ref": f"./artifacts/temp_{image}_mask.tif",
-            "confidence_ref": f"./artifacts/temp_{image}_conf.tif",
-            "classes_detected": target_classes,
-        }
+            resp = requests.post(
+                f"{self.endpoint.rstrip('/')}/segment",
+                json=payload,
+                timeout=settings.segmentation_attempt_timeout_s,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise RuntimeError(
+                f"Deployed segmentation call failed: {type(exc).__name__}"
+            ) from exc
+        if not isinstance(result, dict) or not (
+            "masks" in result or "mask_ref" in result
+        ):
+            raise RuntimeError("Deployed segmentation returned an invalid response contract.")
+        return result
 
     def health(self) -> Dict[str, Any]:
         """
         Return health status of the segmentation provider.
         """
-        return {"status": "ok", "provider": "local_segmentation", "endpoint": self.endpoint}
+        return {
+            "status": "configured" if self.endpoint else "unconfigured",
+            "provider": "deployed_segmentation",
+            "endpoint": self.endpoint,
+        }

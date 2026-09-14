@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
 
     # Provider routing
-    vlm_provider_order: str      = "openai,modal,local"
+    vlm_provider_order: str      = "modal"
     vlm_request_token_limit: int = 8192
 
     # OpenAI Agent Brain settings
@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     modal_proxy_token_id: str = ""
     modal_proxy_token_secret: str = ""
     modal_request_timeout_s: float = 600.0
+    modal_attempt_timeout_s: float = 120.0
     visual_model_endpoint: str = ""
     qwen_base_model_path: str = "Qwen/Qwen2-VL-7B-Instruct"
     lora_general: str         = "lora_general_v1"
@@ -56,6 +57,7 @@ class Settings(BaseSettings):
     satquery_modal_proxy_key: str = ""
     satquery_modal_proxy_secret: str = ""
     satquery_allow_unresolved_segmentation: bool = True
+    segmentation_request_timeout_s: float = 600.0
+    segmentation_attempt_timeout_s: float = 120.0
 
 settings = Settings()
-print(f"!!! STARTUP DEBUG -> PROJECT_ROOT: {_PROJECT_ROOT} | OPENAI_API_KEY: {bool(settings.openai_api_key)} | MODAL: {bool(settings.modal_vlm_api_key)}")
