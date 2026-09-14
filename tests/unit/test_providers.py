@@ -13,6 +13,7 @@ from backend.services.providers.openai_provider import OpenAIProvider
 from backend.services.providers.qwen_service import QwenService, QwenServiceError
 from backend.services.providers.segmentation_provider import LocalSegmentationProvider
 from backend.services.provider_service import provider_health, _ordered_providers
+from backend.core.config import settings
 
 
 def test_openai_provider_health_unconfigured():
@@ -150,8 +151,10 @@ def test_qwen_service_rejects_truncated_reasoning():
             service.generate("test")
 
 
-def test_qwen_service_suppresses_http_exception_chain():
+def test_qwen_service_suppresses_http_exception_chain(monkeypatch):
     service = QwenService(endpoint="https://modal-app.modal.direct/v1")
+    monkeypatch.setattr("backend.services.providers.qwen_service.time.sleep", lambda _: None)
+    monkeypatch.setattr(settings, "modal_request_timeout_s", 0.001)
     with patch(
         "backend.services.providers.qwen_service.requests.post",
         side_effect=RequestsConnectionError("request details must remain private"),
@@ -161,12 +164,34 @@ def test_qwen_service_suppresses_http_exception_chain():
     assert raised.value.__cause__ is None
 
 
-def test_segmentation_provider():
-    seg = LocalSegmentationProvider()
-    res = seg.segment("test_chip_123", ["water", "vegetation"])
+def test_segmentation_provider_calls_deployment():
+    seg = LocalSegmentationProvider(endpoint="http://segmentation.test")
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "mask_ref": "mask.tif",
+        "confidence_ref": "confidence.tif",
+        "classes_detected": ["water", "vegetation"],
+    }
+    with patch(
+        "backend.services.providers.segmentation_provider.requests.post",
+        return_value=response,
+    ) as post:
+        res = seg.segment("test_chip_123", ["water", "vegetation"])
     assert "mask_ref" in res
     assert "confidence_ref" in res
     assert res["classes_detected"] == ["water", "vegetation"]
+    post.assert_called_once()
+
+
+def test_segmentation_provider_never_fabricates_fallback():
+    seg = LocalSegmentationProvider(endpoint="http://segmentation.test")
+    with patch(
+        "backend.services.providers.segmentation_provider.requests.post",
+        side_effect=RequestsConnectionError("offline"),
+    ):
+        with pytest.raises(RuntimeError, match="Deployed segmentation call failed"):
+            seg.segment("test_chip_123", ["water"])
 
 
 def test_provider_health_facade():

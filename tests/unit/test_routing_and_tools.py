@@ -11,6 +11,9 @@ from backend.services.vlm_service import _build_messages
 from backend.controller.verifier import verify_answer
 from backend.scientific_tools.alignment import check_pair_compatibility
 from backend.controller import pipeline, run_state
+from backend.controller.planner import enforce_segmentation_contract
+from backend.controller.validator import validate_plan
+from backend.schemas.execution_plan import ExecutionPlan
 
 
 def _profile(image_id="img", sensor="sentinel-2", bands=None):
@@ -64,6 +67,50 @@ def test_router_area_request_requires_segmentation():
     route = route_query("Measure the area of water in this image", [_profile()])
     assert route.mode == "segmentation"
     assert route.requires_segmentation is True
+
+
+def test_router_explicit_mask_request_requires_segmentation():
+    route = route_query("Create a water mask for this image", [_profile()])
+    assert route.requires_segmentation is True
+
+
+def test_segmentation_contract_restores_model_omitted_by_planner():
+    proposed = ExecutionPlan(
+        workflow="single",
+        images=["img"],
+        target_classes=[],
+        required_models=[],
+        optional_tools=[],
+        requested_outputs=[],
+        final_adapter="LORA_GENERAL_v1",
+        fallback="guess visually",
+    )
+    enforced = enforce_segmentation_contract(
+        proposed,
+        [_profile()],
+        {"target_classes_hint": ["urban"]},
+    )
+    assert enforced.required_models == ["SEG_RGB_v1"]
+    assert enforced.target_classes == ["built_up"]
+    assert "masks" in enforced.requested_outputs
+    assert enforced.final_adapter is None
+    assert enforced.fallback is None
+
+
+def test_validator_rejects_mask_plan_without_segmenter():
+    invalid = ExecutionPlan(
+        workflow="single",
+        images=["img"],
+        target_classes=["water"],
+        required_models=[],
+        optional_tools=[],
+        requested_outputs=["masks"],
+        final_adapter=None,
+        fallback=None,
+    )
+    result = validate_plan(invalid, [_profile()])
+    assert result.approved is False
+    assert any("segmentation model" in error for error in result.errors)
 
 
 def test_router_comparative_index_uses_temporal_tools_not_segmentation():
