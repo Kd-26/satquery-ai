@@ -18,9 +18,9 @@ class OpenAIProvider(AgentProvider):
     Powers intent classification, DAG workflow planning, and evidence verification.
     """
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, base_url: Optional[str] = None):
-        self.api_key = api_key or settings.openai_api_key
-        self.model = model or settings.openai_agent_model
-        self.base_url = base_url or settings.openai_api_base
+        self.api_key = settings.openai_api_key if api_key is None else api_key
+        self.model = settings.openai_agent_model if model is None else model
+        self.base_url = settings.openai_api_base if base_url is None else base_url
 
     def _get_client(self):
         if not self.api_key:
@@ -69,17 +69,14 @@ class OpenAIProvider(AgentProvider):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool_name,
-                    "description": f"Submit the {tool_name}.",
-                    "parameters": schema,
-                    "strict": True,
-                },
-            }
-        ]
+        func_def = {
+            "name": tool_name,
+            "description": f"Submit the {tool_name}.",
+            "parameters": schema,
+            "strict": True,
+        }
+
+        tools = [{"type": "function", "function": func_def}]
 
         try:
             response = client.chat.completions.create(
