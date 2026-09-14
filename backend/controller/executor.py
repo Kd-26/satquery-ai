@@ -91,8 +91,12 @@ def _run_model_inference(
     is_modal = False
     headers = {}
     params = {}
+    try:
+        registered_model = get_by_id(model_id)
+    except Exception:
+        registered_model = None
 
-    if modal_base:
+    if modal_base and registered_model is not None:
         is_modal = True
         api_base = modal_base if modal_base.endswith("/v1") else f"{modal_base}/v1"
         channel_count = tensor.shape[1] if tensor.ndim == 4 else (tensor.shape[0] if tensor.ndim == 3 else 1)
@@ -118,10 +122,9 @@ def _run_model_inference(
     if target_endpoint.startswith("http"):
         hostname = (urlparse(target_endpoint).hostname or "").lower()
         is_local = hostname in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
-        try:
-            registry_managed = get_by_id(model_id).endpoint == target_endpoint
-        except Exception:
-            registry_managed = False
+        registry_managed = bool(
+            registered_model and registered_model.endpoint == target_endpoint
+        )
         # SATQUERY_SEGMENTATION_BASE_URL denotes the application's managed
         # scientific backend. Model endpoints that were startup-validated from
         # the capability registry are also managed application infrastructure.
