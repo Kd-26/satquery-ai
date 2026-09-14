@@ -162,13 +162,30 @@ class QwenService(VisualProvider):
                     raise QwenServiceError(
                         f"Modal VLM was not ready after {attempts - 1} attempts."
                     )
-                resp = requests.post(
-                    self._completion_url(self.endpoint),
-                    json=payload,
-                    headers=headers,
-                    timeout=min(60.0, remaining_s),
-                    allow_redirects=True,
-                )
+                try:
+                    resp = requests.post(
+                        self._completion_url(self.endpoint),
+                        json=payload,
+                        headers=headers,
+                        timeout=min(60.0, remaining_s),
+                        allow_redirects=True,
+                    )
+                except requests.ConnectionError:
+                    # Modal sometimes drops the TCP connection entirely while
+                    # scaling from zero before it starts returning 503.
+                    sleep_s = min(delay_s, max(0.0, deadline - time.monotonic()))
+                    if sleep_s <= 0:
+                        raise QwenServiceError(
+                            f"Modal VLM connection refused after {attempts} attempts."
+                        )
+                    logger.info(
+                        "Modal Server refused connection (cold-start); retrying in %.1fs (attempt %d).",
+                        sleep_s,
+                        attempts,
+                    )
+                    time.sleep(sleep_s)
+                    delay_s = min(delay_s * 2.0, 10.0)
+                    continue
                 if resp.status_code != 503:
                     break
                 sleep_s = min(delay_s, max(0.0, deadline - time.monotonic()))

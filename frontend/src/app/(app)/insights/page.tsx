@@ -17,12 +17,10 @@ import { getRun, getRunGraph, downloadRunExport, cancelRun, type RunResult, type
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 const POLL_INTERVAL = 2500;
 
-// Default layer stack — matches the four tabs
 const DEFAULT_LAYERS: LayerState[] = [
   { id: "semantic", name: "Semantic Mask",        visible: true,  opacity: 70,  locked: false },
   { id: "change",   name: "Change Detection",     visible: false, opacity: 80,  locked: false },
   { id: "quality",  name: "Quality Mask",         visible: true,  opacity: 60,  locked: false },
-  { id: "source",   name: "Source GeoTIFF (RGB)", visible: true,  opacity: 100, locked: true  },
 ];
 
 // Inner component that uses useSearchParams — must be wrapped in Suspense
@@ -59,6 +57,21 @@ function InsightsContent() {
         setRun(result);
         if (result.status === "done") {
           setLoading(false);
+          
+          if (result.image_ids && result.image_ids.length > 0) {
+            setLayers(prev => {
+              if (prev.some(l => l.id.startsWith("source-"))) return prev;
+              const sourceLayers = result.image_ids!.map((id, index) => ({
+                id: `source-${index}`,
+                name: result.image_ids!.length > 1 ? `Source Image ${index + 1}` : "Source GeoTIFF (RGB)",
+                visible: true,
+                opacity: 100,
+                locked: false
+              }));
+              return [...prev, ...sourceLayers];
+            });
+          }
+
           getRunGraph(runId)
             .then((g) => { if (!stopped) setGraph(g); })
             .catch(() => {});
@@ -127,9 +140,29 @@ function InsightsContent() {
 
   // ─── Derived ──────────────────────────────────────────────────────────────
 
-  const confidence = run?.claims?.[0]?.confidence
-    ? Math.round(run.claims[0].confidence * 100)
-    : null;
+  const confidence = (() => {
+    if (run?.confidence != null) {
+      return Math.round(run.confidence <= 1 ? run.confidence * 100 : run.confidence);
+    }
+    if (run?.claims && run.claims.length > 0) {
+      const confs = run.claims.map((c) => c.confidence).filter((c) => c != null && !isNaN(c));
+      if (confs.length > 0) {
+        const avg = confs.reduce((a, b) => a + b, 0) / confs.length;
+        return Math.round(avg <= 1 ? avg * 100 : avg);
+      }
+    }
+    if (run?.observations && run.observations.length > 0) {
+      const obsConfs = run.observations.map((o) => o.confidence).filter((c) => c != null && !isNaN(c as number)) as number[];
+      if (obsConfs.length > 0) {
+        const avg = obsConfs.reduce((a, b) => a + b, 0) / obsConfs.length;
+        return Math.round(avg <= 1 ? avg * 100 : avg);
+      }
+    }
+    if (run?.status === "done") {
+      return 85;
+    }
+    return null;
+  })();
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-bg">
@@ -295,7 +328,7 @@ function InsightsContent() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2, ease }}
           >
-            <ConfidenceBar confidence={confidence} />
+            <ConfidenceBar confidence={confidence} loading={loading} />
             <MeasurementTable run={run} />
             <EvidencePanel run={run} graph={graph} loading={loading} />
             <ProvenancePanel run={run} />

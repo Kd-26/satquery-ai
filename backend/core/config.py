@@ -20,16 +20,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://user:pass@localhost:5432/satquery"
     cors_origins: list[str] = ["http://localhost:3000"]
 
-    # NVIDIA NIM / VLM settings
-    nim_api_base: str         = "https://integrate.api.nvidia.com/v1"
-    nim_api_key: str          = ""
-    vlm_model_id: str         = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    vlm_max_tokens: int       = 8192
-    vlm_reasoning_budget: int = 4096
-    vlm_temperature: float    = 0.3
-    vlm_top_p: float          = 0.95
-    vlm_lora_adapter: str     = ""  # blank until fine-tuned LoRA is ready
-    vlm_provider_order: str   = "openai,modal,nvidia,local"
+    # Provider routing
+    vlm_provider_order: str      = "openai,modal,local"
     vlm_request_token_limit: int = 8192
 
     # OpenAI Agent Brain settings
@@ -59,4 +51,11 @@ class Settings(BaseSettings):
     local_vlm_model_id: str   = "local-vlm"
     segmentation_endpoint: str = "http://localhost:8001"
 
+    # Modal Hosted Segmentation API
+    satquery_segmentation_base_url: str = ""
+    satquery_modal_proxy_key: str = ""
+    satquery_modal_proxy_secret: str = ""
+    satquery_allow_unresolved_segmentation: bool = True
+
 settings = Settings()
+print(f"!!! STARTUP DEBUG -> PROJECT_ROOT: {_PROJECT_ROOT} | OPENAI_API_KEY: {bool(settings.openai_api_key)} | MODAL: {bool(settings.modal_vlm_api_key)}")

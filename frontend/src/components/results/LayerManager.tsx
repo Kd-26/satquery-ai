@@ -12,7 +12,7 @@ interface LayerManagerProps {
 }
 
 export default function LayerManager({ layers, onToggleVisibility, onChangeOpacity }: LayerManagerProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const visibleCount = layers.filter((l) => l.visible).length;
 
   return (

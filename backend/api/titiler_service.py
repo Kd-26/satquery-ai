@@ -13,12 +13,12 @@ from rasterio.warp import transform_bounds
 
 try:
     from titiler.core.factory import TilerFactory
-    # Set up TiTiler factory for serving COG tiles. `router_prefix` only affects
-    # self-referencing links (e.g. tilejson URLs) — it does NOT add "/tiles" to
-    # the router's own paths, so we mount it under an explicit prefix ourselves
-    # to guarantee the final path is always /api/v1/tiles/... regardless of
-    # whether titiler is installed (see the ImportError branch below).
-    cog = TilerFactory(router_prefix="/tiles")
+    # router_prefix must match where TiTiler is actually served from so that
+    # self-referencing links (tilejson, etc.) resolve correctly.
+    # The router is mounted at /api/v1/tiles in main.py, so TiTiler's own
+    # sub-routes (/tiles/WebMercatorQuad/...) end up at /api/v1/tiles/... —
+    # NOT /api/v1/tiles/tiles/... (which was the double-prefix bug).
+    cog = TilerFactory(router_prefix="/api/v1/tiles")
     titiler_router = APIRouter(prefix="/tiles")
     titiler_router.include_router(cog.router)
     _TITILER_AVAILABLE = True
@@ -43,16 +43,24 @@ def _resolve_artifact_path(image_id: str) -> Path:
 
 
 def _resolve_mask_path(run_id: str, mask_name: str) -> Path:
-    """Finds a saved mask TIFF for a completed run under ./artifacts/{run_id}/masks/."""
-    masks_dir = Path(f"./artifacts/{run_id}/masks")
-    # mask_name may be passed with or without .tif extension
-    for ext in ("", ".tif", ".tiff"):
-        candidate = masks_dir / f"{mask_name}{ext}"
-        if candidate.exists():
-            return candidate
+    """Finds a saved mask or derived TIFF for a completed run under ./artifacts/{run_id}/."""
+    search_dirs = [
+        Path(f"./artifacts/{run_id}/derived"),
+        Path(f"./artifacts/{run_id}/masks"),
+        Path(f"./artifacts/{run_id}"),
+    ]
+    for d in search_dirs:
+        if not d.exists():
+            continue
+        # Check direct or lowercased name with extensions
+        for name in (mask_name, mask_name.lower()):
+            for ext in ("", ".tif", ".tiff", ".png"):
+                candidate = d / f"{name}{ext}"
+                if candidate.is_file():
+                    return candidate
     raise HTTPException(
         status_code=404,
-        detail=f"No mask artifact found for run_id={run_id}, mask_name={mask_name}",
+        detail=f"No mask or derived artifact found for run_id={run_id}, mask_name={mask_name}",
     )
 
 

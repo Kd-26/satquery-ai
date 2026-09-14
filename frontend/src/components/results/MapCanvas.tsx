@@ -73,13 +73,19 @@ const OVERLAY_LAYERS: Record<string, string> = {
   Quality:  "mask-layer-quality",
 };
 
-// Per-tab mask file name patterns written by evidence.py
+// Per-tab mask file name patterns written by evidence.py or scientific_tool_executor
 const TAB_TO_MASK_NAMES: Record<string, string[]> = {
-  Semantic: ["SEG_RGB_v1_water", "SEG_RGB_v1_vegetation", "SEG_RGB_v1_built_up", "SEG_RGB_v1_bare_soil", "SEG_RGB_v1_cropland",
-             "SEG_SAR_VV_VH_v1_water", "SEG_SAR_VV_VH_v1_vegetation"],
-  Change:   ["gain_water", "loss_water", "net_change_water",
-             "gain_vegetation", "loss_vegetation", "net_change_vegetation"],
-  Quality:  ["cloud_mask", "shadow_mask", "valid_mask"],
+  Semantic: [
+    "ndvi", "ndwi", "mndwi", "ndbi", "evi", "savi",
+    "SEG_RGB_v1_water", "SEG_RGB_v1_vegetation", "SEG_RGB_v1_built_up", "SEG_RGB_v1_bare_soil", "SEG_RGB_v1_cropland",
+    "SEG_SAR_VV_VH_v1_water", "SEG_SAR_VV_VH_v1_vegetation"
+  ],
+  Change:   [
+    "ndvi_difference", "ndwi_difference", "mndwi_difference", "ndbi_difference",
+    "gain_water", "loss_water", "net_change_water",
+    "gain_vegetation", "loss_vegetation", "net_change_vegetation"
+  ],
+  Quality:  ["valid_mask", "cloud_mask", "shadow_mask"],
 };
 
 // ─── Blank base style (no external basemap tiles fetched) ─────────────────────
@@ -151,10 +157,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
   const [swipeX, setSwipeX]                     = useState(50); // percent
   const swipeDragging                           = useRef(false);
 
-  const primaryImageId = imageIds[0];
-  const sourceLayerState = layers.find((layer) => layer.id === "source");
-  const sourceVisible = sourceLayerState?.visible !== false;
-  const sourceOpacity = sourceLayerState?.opacity ?? 100;
+  const primaryImageId = imageIds?.[0];
   const overlayLayerState = layers.find((layer) => layer.id === activeTab.toLowerCase());
   const overlayVisible = overlayLayerState?.visible !== false;
   const overlayOpacity = overlayLayerState?.opacity ?? 70;
@@ -165,9 +168,15 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
     setLayerVisible: (id: string, visible: boolean) => {
       const map = mapRef.current;
       if (!map) return;
-      const layerId = id === "source" ? LAYER_SOURCE : OVERLAY_LAYERS[
-        id === "semantic" ? "Semantic" : id === "change" ? "Change" : "Quality"
-      ];
+      let layerId;
+      if (id.startsWith("source-")) {
+        const idx = id.split("-")[1];
+        layerId = `cog-layer-${idx}`;
+      } else {
+        layerId = OVERLAY_LAYERS[
+          id === "semantic" ? "Semantic" : id === "change" ? "Change" : "Quality"
+        ];
+      }
       if (layerId && map.getLayer(layerId)) {
         map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
       }
@@ -175,9 +184,15 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
     setLayerOpacity: (id: string, opacity: number) => {
       const map = mapRef.current;
       if (!map) return;
-      const layerId = id === "source" ? LAYER_SOURCE : OVERLAY_LAYERS[
-        id === "semantic" ? "Semantic" : id === "change" ? "Change" : "Quality"
-      ];
+      let layerId;
+      if (id.startsWith("source-")) {
+        const idx = id.split("-")[1];
+        layerId = `cog-layer-${idx}`;
+      } else {
+        layerId = OVERLAY_LAYERS[
+          id === "semantic" ? "Semantic" : id === "change" ? "Change" : "Quality"
+        ];
+      }
       if (layerId && map.getLayer(layerId)) {
         map.setPaintProperty(layerId, "raster-opacity", opacity / 100);
       }
@@ -214,41 +229,44 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready || !primaryImageId) return;
+    if (!map || !ready || !imageIds || imageIds.length === 0) return;
 
     let cancelled = false;
     setTileLoading(true);
     setTileError(null);
     setCrsWarning(null);
 
-    getImageTileInfo(primaryImageId)
-      .then((info) => {
+    Promise.all(imageIds.map(id => getImageTileInfo(id)))
+      .then((infos) => {
         if (cancelled || !mapRef.current) return;
 
-        // Show CRS warning instead of hard error
-        if (info.no_crs) {
-          setCrsWarning(info.crs_warning ?? "No CRS — upload a georeferenced GeoTIFF for accurate positioning.");
+        if (infos[0].no_crs) {
+          setCrsWarning(infos[0].crs_warning ?? "No CRS — upload a georeferenced GeoTIFF for accurate positioning.");
         }
 
-        if (map.getLayer(LAYER_SOURCE)) map.removeLayer(LAYER_SOURCE);
-        if (map.getSource(SOURCE_SOURCE)) map.removeSource(SOURCE_SOURCE);
+        infos.forEach((info, idx) => {
+          const srcId = `cog-source-${idx}`;
+          const lyrId = `cog-layer-${idx}`;
 
-        map.addSource(SOURCE_SOURCE, {
-          type: "raster",
-          tiles: [info.tile_url_template],
-          tileSize: 256,
+          if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+          if (map.getSource(srcId)) map.removeSource(srcId);
+
+          map.addSource(srcId, {
+            type: "raster",
+            tiles: [info.tile_url_template],
+            tileSize: 256,
+          });
+
+          map.addLayer({
+            id: lyrId,
+            type: "raster",
+            source: srcId,
+            layout: { visibility: "visible" },
+            paint: { "raster-opacity": 1 },
+          });
         });
 
-        // Respect current layer visibility from layers prop
-        map.addLayer({
-          id: LAYER_SOURCE,
-          type: "raster",
-          source: SOURCE_SOURCE,
-          layout: { visibility: sourceVisible ? "visible" : "none" },
-          paint: { "raster-opacity": sourceOpacity / 100 },
-        });
-
-        const [west, south, east, north] = info.bounds;
+        const [west, south, east, north] = infos[0].bounds;
         map.fitBounds([[west, south], [east, north]], { padding: 40, animate: false });
       })
       .catch((e) => {
@@ -260,7 +278,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
       });
 
     return () => { cancelled = true; };
-  }, [ready, primaryImageId, sourceVisible, sourceOpacity]);
+  }, [ready, imageIds]);
 
   // ─── Load overlay mask when tab changes ──────────────────────────────────
 
@@ -290,7 +308,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
       if (idx >= candidateMaskNames.length) {
         if (!cancelled) {
           setOverlayLoading(false);
-          setOverlayError(`No ${activeTab.toLowerCase()} mask found for this run yet.`);
+          setOverlayError(`No ${activeTab.toLowerCase()} mask available — this run used a spectral index tool (not segmentation). Switch to the Source tab to see the imagery.`);
         }
         return;
       }
@@ -537,7 +555,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
   return (
     <div className="relative w-full h-full bg-[#0A0A0A] overflow-hidden group">
       {/* Primary map canvas */}
-      <div ref={containerRef} className={`absolute inset-0 ${isBlend ? "[&_.maplibregl-canvas]:mix-blend-difference" : ""}`} />
+      <div ref={containerRef} className={`absolute inset-0 isolate ${isBlend ? "[&_.maplibregl-canvas]:mix-blend-difference" : ""}`} />
 
       {/* Swipe vertical divider */}
       {isSwipe && primaryImageId && (

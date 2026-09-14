@@ -2,11 +2,15 @@ import json
 import logging
 import time
 import os
+import io
+import zipfile
 import httpx
+import rasterio
 import numpy as np
 from typing import Dict, Any
 from urllib.parse import urlparse
 
+from backend.core.config import settings
 from backend.schemas.execution_plan import ExecutionPlan
 from backend.schemas.validation_result import ValidationResult
 from backend.controller.preprocessing import prepare_model_input
@@ -103,11 +107,34 @@ def _run_model_inference(
     external_image_consent: bool = False,
 ) -> dict:
     """
-    Run model inference via real HTTP microservice if available,
+    Run model inference via real HTTP microservice (including Modal hosted service) if available,
     or bridge via deterministic scientific raster segmentation.
     """
-    if endpoint and endpoint.startswith("http"):
-        hostname = (urlparse(endpoint).hostname or "").lower()
+    modal_base = settings.satquery_segmentation_base_url.rstrip("/") if settings.satquery_segmentation_base_url else ""
+    target_endpoint = endpoint
+    is_modal = False
+    headers = {}
+    params = {}
+
+    if modal_base:
+        is_modal = True
+        channel_count = tensor.shape[1] if tensor.ndim == 4 else (tensor.shape[0] if tensor.ndim == 3 else 1)
+        if "sar" in model_id.lower():
+            target_endpoint = f"{modal_base}/v1/segment/sar"
+        elif "multispectral" in model_id.lower() or channel_count > 3:
+            target_endpoint = f"{modal_base}/v1/segment/multispectral"
+        else:
+            target_endpoint = f"{modal_base}/v1/segment/landcover"
+
+        if settings.satquery_modal_proxy_key and settings.satquery_modal_proxy_secret:
+            headers["Modal-Key"] = settings.satquery_modal_proxy_key
+            headers["Modal-Secret"] = settings.satquery_modal_proxy_secret
+
+        if settings.satquery_allow_unresolved_segmentation:
+            params["allow_unresolved_metadata"] = "true"
+
+    if target_endpoint and target_endpoint.startswith("http"):
+        hostname = (urlparse(target_endpoint).hostname or "").lower()
         is_local = hostname in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
         if not is_local and not external_image_consent:
             raise ExecutorError(
@@ -118,27 +145,77 @@ def _run_model_inference(
             if not artifact_files:
                 raise ExecutorError(f"Original raster not found for {image_id}.")
             with artifact_files[0].open("rb") as raster_file:
-                resp = httpx.post(
-                    endpoint,
-                    data={"model_id": model_id, "classes": json.dumps(classes), "image_id": image_id or ""},
-                    files={"file": (artifact_files[0].name, raster_file, "application/octet-stream")},
-                    timeout=30.0,
+                logger.info(
+                    "Sending segmentation request for model %s (image %s) to %s",
+                    model_id, image_id, target_endpoint
                 )
+                if is_modal:
+                    resp = httpx.post(
+                        target_endpoint,
+                        headers=headers,
+                        params=params,
+                        files={"file": (artifact_files[0].name, raster_file, "image/tiff")},
+                        timeout=180.0,
+                    )
+                else:
+                    resp = httpx.post(
+                        target_endpoint,
+                        data={"model_id": model_id, "classes": json.dumps(classes), "image_id": image_id or ""},
+                        files={"file": (artifact_files[0].name, raster_file, "application/octet-stream")},
+                        timeout=60.0,
+                    )
+
             if resp.status_code == 200:
+                content_type = resp.headers.get("content-type", "")
+                if "zip" in content_type or resp.content.startswith(b"PK\x03\x04"):
+                    with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
+                        mask_bytes = z.read("mask.tif")
+                        with rasterio.open(io.BytesIO(mask_bytes)) as src:
+                            seg_mask = src.read(1)
+
+                    masks = {}
+                    scores = {}
+                    # Map discrete multi-class segmentation mask to binary class masks
+                    # LandCover class IDs: 1=Water, 2=Built-up, 3=Road, 4=Cropland/Ag, 5=Forest, 6=Bare Soil, 7=Low Veg
+                    for cls in classes:
+                        c_lower = cls.lower()
+                        if "water" in c_lower or "flood" in c_lower:
+                            binary_mask = (seg_mask == 1).astype(np.uint8)
+                        elif "veg" in c_lower or "forest" in c_lower:
+                            binary_mask = ((seg_mask == 5) | (seg_mask == 7)).astype(np.uint8)
+                        elif "built" in c_lower or "urban" in c_lower or "building" in c_lower:
+                            binary_mask = ((seg_mask == 2) | (seg_mask == 3)).astype(np.uint8)
+                        elif "crop" in c_lower or "agri" in c_lower:
+                            binary_mask = (seg_mask == 4).astype(np.uint8)
+                        elif "soil" in c_lower or "bare" in c_lower:
+                            binary_mask = (seg_mask == 6).astype(np.uint8)
+                        else:
+                            binary_mask = (seg_mask > 0).astype(np.uint8)
+
+                        masks[cls] = binary_mask
+                        scores[cls] = np.where(binary_mask == 1, 0.95, 0.0).astype(np.float32)
+
+                    logger.info(
+                        "Successfully received and parsed Modal segmentation for %s. Mask shape: %s",
+                        model_id, seg_mask.shape
+                    )
+                    return {"masks": masks, "scores": scores}
+
                 data = resp.json()
                 if "masks" in data and "scores" in data:
                     return {
                         "masks": {key: np.asarray(value, dtype=np.uint8) for key, value in data["masks"].items()},
                         "scores": {key: np.asarray(value, dtype=np.float32) for key, value in data["scores"].items()},
                     }
+
             logger.warning(
-                "Model service %s returned HTTP %s; using scientific raster engine fallback.",
-                model_id, resp.status_code
+                "Model service %s returned HTTP %s: %s; using scientific raster engine fallback.",
+                model_id, resp.status_code, resp.text[:200]
             )
         except Exception as e:
             logger.warning(
-                "Model service %s at %s is unreachable (%s); using scientific raster engine fallback.",
-                model_id, endpoint, e
+                "Model service %s at %s failed or unreachable (%s); using scientific raster engine fallback.",
+                model_id, target_endpoint, e
             )
 
     return _scientific_raster_segmentation(tensor, model_id, classes)
@@ -157,8 +234,10 @@ from backend.scientific_tools.raster_io import read_bands
 from pathlib import Path
 
 def _stitch_tiles(batch_tensor: np.ndarray, tile_transforms: list, dtype=np.float32) -> np.ndarray:
+    if batch_tensor.ndim == 2:
+        return batch_tensor.astype(dtype)
     if not tile_transforms:
-        return batch_tensor[0]
+        return batch_tensor[0].astype(dtype)
         
     max_h = max(t["y_offset"] + t["orig_h"] for t in tile_transforms)
     max_w = max(t["x_offset"] + t["orig_w"] for t in tile_transforms)

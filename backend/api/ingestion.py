@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import uuid
 
-from backend.controller.ingestion import ingest_upload
+from backend.controller.ingestion import ingest_upload, inspect_image
 
 router = APIRouter(tags=["ingestion"])
 
@@ -72,6 +72,36 @@ async def get_image_preview(image_id: str):
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@router.get("/images/{image_id}/metadata")
+async def get_image_metadata(image_id: str):
+    """
+    Return real raster metadata for an uploaded image: bounds, CRS, band
+    identities, channel count, dimensions, and confidence scores.
+    Derived directly from the uploaded raster file via rasterio.
+    """
+    artifact_dir = Path(f"./artifacts/{image_id}")
+    if not artifact_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Image {image_id} not found.")
+    try:
+        meta = inspect_image(image_id)
+        return {
+            "image_id": image_id,
+            "dimensions": meta.get("dimensions"),
+            "channel_count": meta.get("channel_count"),
+            "band_identities": meta.get("band_identities", []),
+            "band_identity_source": meta.get("band_identity_source", "approximation"),
+            "metadata_confidence": meta.get("metadata_confidence", 0.5),
+            "crs": meta.get("crs"),
+            "bounds": meta.get("bounds"),
+            "scales": meta.get("scales", []),
+            "offsets": meta.get("offsets", []),
+        }
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Raster file for image {image_id} not found.")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Metadata extraction failed: {exc}")
 
 
 class PairRequest(BaseModel):

@@ -16,7 +16,7 @@ class LocalSegmentationProvider(SegmentationProvider):
     Segmentation provider implementation interacting with dedicated local/remote ML services.
     """
     def __init__(self, endpoint: Optional[str] = None):
-        self.endpoint = endpoint or settings.segmentation_endpoint
+        self.endpoint = endpoint or settings.satquery_segmentation_base_url or settings.segmentation_endpoint
 
     def segment(self, image: str, target_classes: List[str], prompt: Optional[str] = None) -> Dict[str, Any]:
         """

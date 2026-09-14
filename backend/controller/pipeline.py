@@ -17,6 +17,7 @@ Synthesis -> Verifying) instead of a generic spinner.
 """
 import json
 from typing import List
+import numpy as np
 
 from backend.controller import run_state
 from backend.controller.ingestion import resolve_metadata
@@ -86,6 +87,7 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 "answer": answer_obj["plain_language"],
                 "answer_obj": answer_obj,
                 "claims": [],
+                "confidence": 0.90,
                 "limitations": ["This is a general-knowledge response; no raster analysis was performed."],
                 "route": route.model_dump(),
                 "intent": intent_hints,
@@ -124,12 +126,13 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                     "The visual response included unsupported quantitative details and was withheld. "
                     "Run an appropriate scientific measurement tool for quantitative results."
                 )
-                answer_obj = {"technical": safe, "plain_language": safe}
-                limitations.extend(visual_verification.flagged_claims)
+            obs_confs = [o.confidence for o in observations if o.confidence is not None]
+            overall_conf = float(np.mean(obs_confs)) if obs_confs else 0.80
             run_state.mark_done(run_id, {
                 "answer": answer_obj["plain_language"],
                 "answer_obj": answer_obj,
                 "claims": [],
+                "confidence": overall_conf,
                 "limitations": limitations,
                 "route": route.model_dump(),
                 "intent": intent_hints,
@@ -184,10 +187,14 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 fallback_text = get_conservative_fallback(evidence)
                 answer_obj = {"technical": fallback_text, "plain_language": fallback_text}
                 limitations.append("VLM synthesis failed evidence verification; showing computed evidence only.")
+            claims_dump = [c.model_dump() for c in evidence.claims]
+            confidences = [c.confidence for c in evidence.claims if c.confidence is not None]
+            overall_conf = float(np.mean(confidences)) if confidences else 0.85
             run_state.mark_done(run_id, {
                 "answer": answer_obj["plain_language"],
                 "answer_obj": answer_obj,
-                "claims": [c.model_dump() for c in evidence.claims],
+                "claims": claims_dump,
+                "confidence": overall_conf,
                 "limitations": limitations,
                 "route": route.model_dump(),
                 "intent": intent_hints,
@@ -315,10 +322,14 @@ def run_query_pipeline(run_id: str, query: str, image_ids: List[str], external_i
                 "showing an evidence-only fallback instead."
             )
 
+        claims_dump = [c.model_dump() for c in evidence.claims]
+        confidences = [c.confidence for c in evidence.claims if c.confidence is not None]
+        overall_conf = float(np.mean(confidences)) if confidences else 0.85
         result = {
             "answer": answer_obj["plain_language"],
             "answer_obj": answer_obj,
-            "claims": [c.model_dump() for c in evidence.claims],
+            "claims": claims_dump,
+            "confidence": overall_conf,
             "limitations": limitations,
             "traces": workflow_result.get("traces", []),
             "route": route.model_dump(),

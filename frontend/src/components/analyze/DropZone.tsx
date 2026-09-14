@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { UploadCloud, File as FileIcon, X, CheckCircle2, Image as ImageIcon, AlertCircle, Satellite, FileJson } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { uploadImage, getImagePreviewUrl, getImageMetadata, type RasterMetadata } from "@/lib/api";
+import { useImageStore } from "@/lib/imageStore";
 
 export type UploadedFile = {
   file: File;
@@ -35,6 +36,7 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
   const [sidecar, setSidecar] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sidecarInputRef = useRef<HTMLInputElement>(null);
+  const setLastImageIds = useImageStore((s) => s.setLastImageIds);
 
   const processFile = (file: File) => {
     const isImage = file.type.startsWith("image/");
@@ -68,25 +70,29 @@ export default function DropZone({ onFilesAccepted, maxFiles = 2 }: DropZoneProp
       .then(async (res) => {
         const scientificMetadata = await getImageMetadata(res.image_id).catch(() => undefined);
         const previewUrl = getImagePreviewUrl(res.image_id);
-        setFiles((prev) =>
-          prev.map((f) =>
+        setFiles((prev) => {
+          const next = prev.map((f) =>
             f.file.name === file.name
               ? {
                   ...f,
                   progress: 100,
-                  status: "done",
+                  status: "done" as const,
                   imageId: res.image_id,
                   scientificMetadata,
-                  // Always use the backend-generated preview for any file with has_preview=true.
-                  // This covers: 13-band S2, 2-band SAR, 3/4-band GeoTIFF.
-                  // For standard PNG/JPEG without a backend preview, keep the existing blob URL.
                   ...(res.has_preview
                     ? { preview: previewUrl, previewLoading: true, previewError: false }
                     : {}),
                 }
               : f
-          )
-        );
+          );
+          // Persist completed image IDs to the global store so the Lab page
+          // can auto-populate without manual copy-paste.
+          const doneIds = next
+            .filter((f) => f.status === "done" && f.imageId)
+            .map((f) => f.imageId as string);
+          if (doneIds.length > 0) setLastImageIds(doneIds);
+          return next;
+        });
       })
       .catch((err: Error) => {
         setFiles((prev) =>

@@ -129,6 +129,7 @@ export interface RunResult {
   };
   tool_graph?: { nodes: Array<{ id: string; tool: string; depends_on: string[]; required: boolean; version: string }> };
   tool_outputs?: Record<string, unknown>;
+  confidence?: number | null;
 }
 
 export interface RasterMetadata {

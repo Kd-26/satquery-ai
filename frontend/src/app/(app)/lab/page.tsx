@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import ExperimentBuilder from "@/components/lab/ExperimentBuilder";
 import ParameterConsole from "@/components/lab/ParameterConsole";
-import { createExperiment, getExperiment, getRunHistory, type ExperimentResult, type RunStatusValue } from "@/lib/api";
-import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { createExperiment, getExperiment, getRunHistory, getRun, type ExperimentResult, type RunStatusValue, type RunResult } from "@/lib/api";
+import { Loader2, AlertCircle, CheckCircle2, FlaskConical } from "lucide-react";
 import ScientificWorkbench from "@/components/lab/ScientificWorkbench";
 import { useRouter } from "next/navigation";
+import { useImageStore } from "@/lib/imageStore";
 
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 
@@ -33,6 +34,18 @@ export default function LabPage() {
   const [notes, setNotes] = useState<string>("");
   const [imageIdInput, setImageIdInput] = useState("");
   const imageIds = imageIdInput.split(",").map((value) => value.trim()).filter(Boolean).slice(0, 2);
+  // Route from the selected run — used by ExperimentBuilder to show real pipeline info
+  const [selectedRunResult, setSelectedRunResult] = useState<RunResult | null>(null);
+
+  // Auto-populate from the global image store (set by DropZone after upload)
+  const { lastImageIds, clearLastImageIds } = useImageStore();
+  useEffect(() => {
+    if (lastImageIds.length > 0 && !imageIdInput) {
+      setImageIdInput(lastImageIds.join(", "));
+    }
+  // Only run on mount — intentionally omit imageIdInput to avoid overwriting user edits
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load notes from localStorage whenever the selected run changes
   useEffect(() => {
@@ -53,6 +66,12 @@ export default function LabPage() {
       })
       .catch((error: Error) => setHistoryError(error.message));
   }, []);
+
+  // Load the full run result whenever selection changes (for real pipeline info)
+  useEffect(() => {
+    if (!selectedRunId) { setSelectedRunResult(null); return; }
+    getRun(selectedRunId).then(setSelectedRunResult).catch(() => setSelectedRunResult(null));
+  }, [selectedRunId]);
 
   const handleCreateExperiment = async (paramOverrides: Record<string, unknown>) => {
     if (!selectedRunId) {
@@ -101,9 +120,37 @@ export default function LabPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)] gap-6 mb-6">
           <div className="bg-surface border border-stroke rounded-3xl p-6">
-            <label htmlFor="lab-image-ids" className="text-sm font-medium text-text-primary">Analysis inputs</label>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="lab-image-ids" className="text-sm font-medium text-text-primary">Analysis inputs</label>
+              {lastImageIds.length > 0 && imageIdInput === lastImageIds.join(", ") && (
+                <span className="flex items-center gap-1.5 text-xs text-green-400">
+                  <FlaskConical className="w-3.5 h-3.5" />
+                  Auto-filled from last upload
+                </span>
+              )}
+            </div>
             <p className="text-xs text-muted mt-1 mb-3">Paste one image ID, or two comma-separated IDs for temporal analysis.</p>
-            <input id="lab-image-ids" value={imageIdInput} onChange={(event) => setImageIdInput(event.target.value)} className="w-full bg-bg border border-stroke rounded-xl px-4 py-3 text-sm font-mono text-text-primary outline-none focus:border-sky-500/50" placeholder="image-id-1, image-id-2" />
+            <div className="flex gap-2">
+              <input id="lab-image-ids" value={imageIdInput} onChange={(event) => setImageIdInput(event.target.value)} className="flex-1 bg-bg border border-stroke rounded-xl px-4 py-3 text-sm font-mono text-text-primary outline-none focus:border-sky-500/50" placeholder="image-id-1, image-id-2" />
+              {lastImageIds.length > 0 && (
+                <button
+                  onClick={() => { setImageIdInput(lastImageIds.join(", ")); }}
+                  title="Restore last uploaded image IDs"
+                  className="px-3 py-2 rounded-xl border border-stroke bg-bg text-xs text-muted hover:text-text-primary hover:border-sky-500/40 transition-colors"
+                >
+                  ↺ Restore
+                </button>
+              )}
+              {imageIdInput && (
+                <button
+                  onClick={() => { setImageIdInput(""); clearLastImageIds(); }}
+                  title="Clear inputs"
+                  className="px-3 py-2 rounded-xl border border-stroke bg-bg text-xs text-muted hover:text-red-400 hover:border-red-500/40 transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
           <ScientificWorkbench imageIds={imageIds} onComplete={(result) => router.push(`/insights?runId=${encodeURIComponent(result.run_id)}`)} />
         </div>
@@ -118,7 +165,11 @@ export default function LabPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1, ease }}
           >
-            <ExperimentBuilder onRunExperiment={handleCreateExperiment} />
+            <ExperimentBuilder
+              onRunExperiment={handleCreateExperiment}
+              imageIds={imageIds}
+              route={selectedRunResult?.route ?? null}
+            />
           </motion.div>
 
           {/* Centre: Parameter Console + Run History */}

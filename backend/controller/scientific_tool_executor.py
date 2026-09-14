@@ -173,6 +173,14 @@ def execute_scientific_route(
             invalid_quality |= cloud | shadow
         valid = compute_valid_mask(raster, nodata_value=profile.nodata_value, cloud_mask=invalid_quality)
         valid_masks.append(valid)
+        if run_id and profile.crs and profile.transform:
+            try:
+                write_georeferenced_raster(
+                    Path("artifacts") / run_id / "derived" / "valid_mask.tif",
+                    valid.astype(np.float32), Affine(*profile.transform[:6]), profile.crs, 0.0,
+                )
+            except Exception:
+                pass
         quality_outputs[image_id] = {
             "valid_fraction": float(valid.mean()), "saturated_fraction": float(saturation.mean()),
             "cloud_fraction": float(cloud.mean()) if cloud is not None else None,
