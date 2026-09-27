@@ -11,6 +11,7 @@ const analyses = [
     gradient: "from-sky-500 via-blue-400/60 to-transparent",
     tags: ["Sentinel-2", "NDVI", "Multitemporal"],
     status: "Completed",
+    cover: "/covers/coastal-erosion.jpg",
   },
   {
     slug: "urban-sprawl",
@@ -19,6 +20,7 @@ const analyses = [
     gradient: "from-violet-500 via-fuchsia-400/60 to-transparent",
     tags: ["Landsat 9", "SAR"],
     status: "Failed",
+    cover: "/covers/urban-sprawl.jpg",
   },
   {
     slug: "flood-mapping",
@@ -27,6 +29,7 @@ const analyses = [
     gradient: "from-emerald-500 via-teal-400/60 to-transparent",
     tags: ["Sentinel-1", "DEM"],
     status: "Completed",
+    cover: "/covers/flood-mapping.jpg",
   },
   {
     slug: "deforestation",
@@ -35,6 +38,7 @@ const analyses = [
     gradient: "from-amber-500 via-orange-400/60 to-transparent",
     tags: ["MODIS", "NDVI", "Time-series"],
     status: "Running",
+    cover: null,
   },
 ];
 
@@ -127,26 +131,30 @@ const RecentAnalyses = () => {
                 <div
                   className={`group bg-surface border border-stroke rounded-3xl ${aspectClasses[i]} relative overflow-hidden transition-colors duration-300 hover:border-transparent`}
                 >
-                  {/* Gradient background */}
+                  {/* Cover image */}
+                  {analysis.cover ? (
+                    <img
+                      src={analysis.cover}
+                      alt={analysis.title}
+                      className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-75 group-hover:scale-105 transition-all duration-700"
+                    />
+                  ) : (
+                    /* Fallback: rich SVG satellite-style pattern */
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        background: `radial-gradient(ellipse at 30% 40%, rgba(251,191,36,0.35) 0%, transparent 55%),
+                                     radial-gradient(ellipse at 75% 65%, rgba(234,88,12,0.25) 0%, transparent 50%),
+                                     repeating-linear-gradient(45deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 12px)`,
+                      }}
+                    />
+                  )}
+                  {/* Gradient overlay on top of image */}
                   <div
-                    className={`absolute inset-0 bg-gradient-to-br ${analysis.gradient} opacity-30 group-hover:opacity-50 transition-opacity duration-500`}
+                    className={`absolute inset-0 bg-gradient-to-br ${analysis.gradient} ${analysis.cover ? "opacity-40" : "opacity-30"} group-hover:opacity-55 transition-opacity duration-500`}
                   />
-                  {/* Halftone overlay */}
-                  <div
-                    className="absolute inset-0 opacity-10 mix-blend-multiply"
-                    style={{
-                      backgroundImage: "radial-gradient(circle, #000 1px, transparent 1px)",
-                      backgroundSize: "4px 4px",
-                    }}
-                  />
-                  {/* Grid pattern */}
-                  <div
-                    className="absolute inset-0 opacity-5"
-                    style={{
-                      backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-                      backgroundSize: "40px 40px",
-                    }}
-                  />
+                  {/* Dark vignette at bottom for legibility */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
                   {/* Status pill */}
                   <div className="absolute top-4 right-4 z-10">

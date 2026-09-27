@@ -8,12 +8,12 @@ import { Search, Filter, FolderOpen, Copy, RotateCcw, ChevronRight, CalendarDays
 const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 
 const ALL_PROJECTS = [
-  { slug: "coastal-erosion",  title: "Coastal Erosion Analysis",       type: "Temporal Comparison",     gradient: "from-sky-500 via-blue-400/60 to-transparent",    tags: ["Sentinel-2","NDVI","Multitemporal"], status: "Completed", date: "Sep 03, 2026", sensor: "Sentinel-2", region: "Mumbai Coast" },
-  { slug: "urban-sprawl",     title: "Urban Sprawl – Region 4",        type: "Optical Segmentation",    gradient: "from-violet-500 via-fuchsia-400/60 to-transparent",tags: ["Landsat 9","SAR"],                 status: "Failed",    date: "Sep 01, 2026", sensor: "Landsat 9",  region: "NCR Delhi"   },
-  { slug: "flood-mapping",    title: "Flood Inundation Mapping",       type: "Optical-SAR Fusion",      gradient: "from-emerald-500 via-teal-400/60 to-transparent",  tags: ["Sentinel-1","DEM"],                status: "Completed", date: "Aug 29, 2026", sensor: "Sentinel-1", region: "Bihar Plains"},
-  { slug: "deforestation",    title: "Amazon Deforestation Watch",     type: "Change Detection",        gradient: "from-amber-500 via-orange-400/60 to-transparent",  tags: ["MODIS","NDVI","Time-series"],       status: "Running",   date: "Aug 27, 2026", sensor: "MODIS",      region: "Amazon Basin"},
-  { slug: "ship-detect",      title: "Harbor Ship Detection",          type: "Object Detection",        gradient: "from-cyan-500 via-sky-400/60 to-transparent",     tags: ["SAR","VV/VH","Sentinel-1"],        status: "Completed", date: "Aug 20, 2026", sensor: "Sentinel-1", region: "Mumbai Port" },
-  { slug: "glacier-retreat",  title: "Glacier Retreat Mapping",        type: "Temporal Comparison",     gradient: "from-blue-400 via-indigo-500/60 to-transparent",  tags: ["Landsat","Multitemporal"],          status: "Completed", date: "Aug 15, 2026", sensor: "Landsat",    region: "Himalayas"   },
+  { slug: "coastal-erosion",  title: "Coastal Erosion Analysis",       type: "Temporal Comparison",     gradient: "from-sky-500 via-blue-400/60 to-transparent",    tags: ["Sentinel-2","NDVI","Multitemporal"], status: "Completed", date: "Sep 03, 2026", sensor: "Sentinel-2", region: "Mumbai Coast",  cover: "/covers/coastal-erosion.jpg" },
+  { slug: "urban-sprawl",     title: "Urban Sprawl – Region 4",        type: "Optical Segmentation",    gradient: "from-violet-500 via-fuchsia-400/60 to-transparent",tags: ["Landsat 9","SAR"],                 status: "Failed",    date: "Sep 01, 2026", sensor: "Landsat 9",  region: "NCR Delhi",    cover: "/covers/urban-sprawl.jpg" },
+  { slug: "flood-mapping",    title: "Flood Inundation Mapping",       type: "Optical-SAR Fusion",      gradient: "from-emerald-500 via-teal-400/60 to-transparent",  tags: ["Sentinel-1","DEM"],                status: "Completed", date: "Aug 29, 2026", sensor: "Sentinel-1", region: "Bihar Plains", cover: "/covers/flood-mapping.jpg" },
+  { slug: "deforestation",    title: "Amazon Deforestation Watch",     type: "Change Detection",        gradient: "from-amber-500 via-orange-400/60 to-transparent",  tags: ["MODIS","NDVI","Time-series"],       status: "Running",   date: "Aug 27, 2026", sensor: "MODIS",      region: "Amazon Basin", cover: null },
+  { slug: "ship-detect",      title: "Harbor Ship Detection",          type: "Object Detection",        gradient: "from-cyan-500 via-sky-400/60 to-transparent",     tags: ["SAR","VV/VH","Sentinel-1"],        status: "Completed", date: "Aug 20, 2026", sensor: "Sentinel-1", region: "Mumbai Port",  cover: null },
+  { slug: "glacier-retreat",  title: "Glacier Retreat Mapping",        type: "Temporal Comparison",     gradient: "from-blue-400 via-indigo-500/60 to-transparent",  tags: ["Landsat","Multitemporal"],          status: "Completed", date: "Aug 15, 2026", sensor: "Landsat",    region: "Himalayas",   cover: null },
 ];
 
 const STATUS_FILTERS = ["All", "Completed", "Running", "Failed"];
@@ -165,9 +165,28 @@ export default function ProjectsPage() {
                   >
                     <Link href="/insights">
                       <div className="group bg-surface border border-stroke rounded-3xl aspect-[4/3] relative overflow-hidden transition-colors duration-300 hover:border-transparent">
-                        <div className={`absolute inset-0 bg-gradient-to-br ${project.gradient} opacity-30 group-hover:opacity-50 transition-opacity duration-500`} />
-                        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle, #000 1px, transparent 1px)", backgroundSize: "4px 4px" }} />
-                        <div className="absolute inset-0 opacity-5" style={{ backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`, backgroundSize: "40px 40px" }} />
+                        {/* Cover image or fallback pattern */}
+                        {project.cover ? (
+                          <img
+                            src={project.cover}
+                            alt={project.title}
+                            className="absolute inset-0 w-full h-full object-cover opacity-55 group-hover:opacity-75 group-hover:scale-105 transition-all duration-700"
+                          />
+                        ) : (
+                          <div
+                            className="absolute inset-0"
+                            style={{
+                              background: `radial-gradient(ellipse at 25% 35%, rgba(255,255,255,0.08) 0%, transparent 60%),
+                                           radial-gradient(ellipse at 80% 70%, rgba(255,255,255,0.05) 0%, transparent 50%),
+                                           repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.04) 39px, rgba(255,255,255,0.04) 40px),
+                                           repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.04) 39px, rgba(255,255,255,0.04) 40px)`,
+                            }}
+                          />
+                        )}
+                        {/* Colour gradient overlay */}
+                        <div className={`absolute inset-0 bg-gradient-to-br ${project.gradient} ${project.cover ? "opacity-40" : "opacity-30"} group-hover:opacity-55 transition-opacity duration-500`} />
+                        {/* Bottom vignette for text legibility */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
 
                         <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
                           <span className="text-xs text-muted/70 flex items-center gap-1.5">
