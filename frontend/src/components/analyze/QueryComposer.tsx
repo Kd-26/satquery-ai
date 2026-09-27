@@ -13,10 +13,10 @@ interface QueryComposerProps {
 }
 
 const EXAMPLE_QUERIES = [
-  "How much has the coastline eroded between 2022 and 2024?",
-  "Detect and count ships visible in the harbor.",
-  "Calculate the NDVI change in the southern agricultural zone.",
-  "Identify flooded areas using SAR backscatter thresholds.",
+  "Segment this satellite image and identify all land cover classes — water, vegetation, built-up areas, cropland, and bare soil. Estimate the percentage coverage of each class.",
+  "Detect the flood-affected water regions in this image and measure the inundated area.",
+  "Identify cropland and vegetation coverage in this scene and estimate the agricultural area.",
+  "Map all built-up urban areas and bare soil regions in this satellite image.",
 ];
 
 export default function QueryComposer({ onComplete, mode, files = [] }: QueryComposerProps) {

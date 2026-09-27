@@ -18,9 +18,10 @@ const ease = [0.25, 0.1, 0.25, 1] as [number, number, number, number];
 const POLL_INTERVAL = 2500;
 
 const DEFAULT_LAYERS: LayerState[] = [
-  { id: "semantic", name: "Semantic Mask",        visible: true,  opacity: 70,  locked: false },
-  { id: "change",   name: "Change Detection",     visible: false, opacity: 80,  locked: false },
-  { id: "quality",  name: "Quality Mask",         visible: true,  opacity: 60,  locked: false },
+  { id: "source-0", name: "Source Image (RGB)", visible: true,  opacity: 100, locked: false },
+  { id: "semantic", name: "Semantic Mask",     visible: true,  opacity: 70,  locked: false },
+  { id: "change",   name: "Change Detection",  visible: false, opacity: 80,  locked: false },
+  { id: "quality",  name: "Quality Mask",      visible: true,  opacity: 60,  locked: false },
 ];
 
 // Inner component that uses useSearchParams — must be wrapped in Suspense
@@ -60,15 +61,15 @@ function InsightsContent() {
           
           if (result.image_ids && result.image_ids.length > 0) {
             setLayers(prev => {
-              if (prev.some(l => l.id.startsWith("source-"))) return prev;
+              const otherLayers = prev.filter(l => !l.id.startsWith("source-"));
               const sourceLayers = result.image_ids!.map((id, index) => ({
                 id: `source-${index}`,
-                name: result.image_ids!.length > 1 ? `Source Image ${index + 1}` : "Source GeoTIFF (RGB)",
+                name: result.image_ids!.length > 1 ? `Source Image ${index + 1}` : "Source Image (RGB)",
                 visible: true,
                 opacity: 100,
                 locked: false
               }));
-              return [...prev, ...sourceLayers];
+              return [...sourceLayers, ...otherLayers];
             });
           }
 

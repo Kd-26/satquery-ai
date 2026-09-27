@@ -105,12 +105,24 @@ def route_query(query: str, input_profiles: List[InputProfile]) -> RoutingDecisi
         )
 
     segmentation_terms = (
+        # Explicit segmentation vocabulary
         "segment", "segmentation", "mask", "delineate", "boundary", "boundaries",
         "outline", "polygon", "classify pixels", "land-cover map", "land cover map",
         "locate", "where are", "map all", "count objects", "detect objects",
+        # Natural identification verbs
+        "identify", "find", "detect", "highlight", "show me", "extract", "isolate",
+        "identify the", "find the", "detect the", "show the",
+        # Land-cover specific phrasing
+        "land cover", "land use", "classification", "what land", "cover type",
+        # SAR/optical feature detection
+        "flood mapping", "flood detection", "urban mapping", "vegetation mapping",
     )
     area_terms = ("area", "hectare", "square kilomet", "square meter", "extent", "coverage", "percentage", "proportion", "how much")
-    feature_terms = ("water", "flood", "vegetation", "forest", "crop", "urban", "building", "soil")
+    feature_terms = (
+        "water", "flood", "vegetation", "forest", "tree", "crop", "agriculture",
+        "urban", "building", "settlement", "city", "soil", "bare soil", "cropland",
+        "built-up", "built up",
+    )
     if any(term in q for term in segmentation_terms) or (
         any(term in q for term in area_terms) and any(term in q for term in feature_terms)
     ):
@@ -120,6 +132,18 @@ def route_query(query: str, input_profiles: List[InputProfile]) -> RoutingDecisi
             required_tools=["segment_features", "compute_valid_mask", "measure_regions", "generate_overlay"],
             claim_policy="model_inference",
             reason="The request needs feature locations, boundaries, counts, or physical area.",
+        )
+
+    # Secondary catch-all: if the query explicitly mentions a mappable land-cover
+    # class and has uploaded images, prefer segmentation over pure visual interpretation.
+    # e.g. "show water bodies", "how is the vegetation?", "are there buildings here?"
+    if has_images and any(term in q for term in feature_terms):
+        return RoutingDecision(
+            mode="segmentation",
+            requires_segmentation=True,
+            required_tools=["segment_features", "compute_valid_mask", "measure_regions", "generate_overlay"],
+            claim_policy="model_inference",
+            reason="The query mentions a mappable feature class; routing to segmentation for quantitative results.",
         )
 
     comparison_requested = any(term in q for term in ("compare", "change", "difference", "between", "over time", "before and after"))

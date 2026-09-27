@@ -144,9 +144,29 @@ def resolve_metadata(image_id: str, sidecar: dict | None = None) -> InputProfile
         elif "s2" in orig_name or "sentinel-2" in orig_name:
             sensor_family = "sentinel-2"
             sensor_type = "optical"
+        elif "cartosat" in orig_name or "cart" in orig_name:
+            sensor_family = "cartosat-2s"
+            sensor_type = "optical"
+        elif "landsat" in orig_name or "lc08" in orig_name or "lc09" in orig_name:
+            sensor_family = "landsat-8" if "lc08" in orig_name else "landsat-9"
+            sensor_type = "optical"
         else:
-            sensor_family = "unknown"
-            
+            # Infer from band count: 2-band → SAR, 3-band → optical RGB, 4+ → multispectral optical
+            channel_count = meta.get("channel_count", 0)
+            if channel_count == 2:
+                sensor_family = "sentinel-1"
+                sensor_type = "sar"
+                sar_polarization = sar_polarization or "VV,VH"
+            elif channel_count >= 10:
+                sensor_family = "sentinel-2"
+                sensor_type = "optical"
+            elif channel_count >= 3:
+                # Generic optical RGB or 4-band — treat as cartosat-2s compatible
+                sensor_family = "cartosat-2s"
+                sensor_type = "optical"
+            else:
+                sensor_family = "unknown"
+
     if sensor_family not in ['sentinel-1', 'sentinel-2', 'landsat-8', 'landsat-9', 'cartosat-2s', 'risat', 'unknown']:
         sensor_family = "unknown"
         

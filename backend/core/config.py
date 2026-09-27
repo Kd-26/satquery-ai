@@ -18,7 +18,14 @@ class Settings(BaseSettings):
 
     app_name: str = "SatQuery AI"
     database_url: str = "postgresql+asyncpg://user:pass@localhost:5432/satquery"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
 
     # Provider routing
     vlm_provider_order: str      = "modal"

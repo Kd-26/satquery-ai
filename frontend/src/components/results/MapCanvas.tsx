@@ -284,7 +284,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready || activeTab === "Source") return;
+    if (!map || !ready) return;
 
     // Remove old overlay layers/sources (all tabs)
     for (const tab of ["Semantic", "Change", "Quality"]) {
@@ -294,6 +294,11 @@ const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas
       if (map.getSource(sid)) map.removeSource(sid);
     }
     setOverlayError(null);
+
+    if (activeTab === "Source") {
+      setOverlayLoading(false);
+      return;
+    }
 
     if (!runId) return;
 
